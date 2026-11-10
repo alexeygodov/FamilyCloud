@@ -58,6 +58,9 @@ android {
                 storePassword = checkNotNull(releaseStorePassword)
                 keyAlias = checkNotNull(releaseKeyAlias)
                 keyPassword = checkNotNull(releaseKeyPassword)
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
