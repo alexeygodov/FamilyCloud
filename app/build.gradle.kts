@@ -39,8 +39,8 @@ android {
         applicationId = "app.familycloud"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.0.0"
+        versionCode = 4
+        versionName = "1.0.1"
     }
 
     compileOptions {

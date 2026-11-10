@@ -29,12 +29,20 @@ class SettingsRepository(context: Context) {
     private val state = MutableStateFlow<SavedConnection?>(null)
     val connection: StateFlow<SavedConnection?> = state
 
+    @Volatile
+    private var attempt: SavedConnection? = null
+
+    @Volatile
+    private var publishedGeneration = 0
+
     suspend fun load() {
+        val seen = publishedGeneration
         val prefs = dataStore.data.first()
         val url = prefs[URL]
         val login = prefs[LOGIN]
         val allowHttp = prefs[ALLOW_HTTP] == true
         val password = secure.getString(PASSWORD, null)
+        if (publishedGeneration != seen) return
         state.value = if (url.isNullOrBlank() || login.isNullOrBlank() || password.isNullOrEmpty()) {
             null
         } else {
@@ -46,11 +54,16 @@ class SettingsRepository(context: Context) {
         persist(connection)
     }
 
-    fun stage(connection: SavedConnection?) {
-        state.value = connection
+    fun beginAttempt(connection: SavedConnection) {
+        attempt = connection
+    }
+
+    fun endAttempt() {
+        attempt = null
     }
 
     suspend fun persist(connection: SavedConnection) {
+        publishedGeneration += 1
         dataStore.edit { prefs ->
             prefs[URL] = connection.baseUrl
             prefs[LOGIN] = connection.login
@@ -60,7 +73,7 @@ class SettingsRepository(context: Context) {
         state.value = connection
     }
 
-    fun snapshot(): SavedConnection? = state.value
+    fun snapshot(): SavedConnection? = attempt ?: state.value
 
     private fun createSecurePrefs(context: Context): SharedPreferences {
         val masterKey = MasterKey.Builder(context)

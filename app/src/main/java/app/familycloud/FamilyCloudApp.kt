@@ -24,10 +24,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import okhttp3.Authenticator
 import okhttp3.Credentials
 import okhttp3.Dispatcher
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.Route
 import okio.Path.Companion.toOkioPath
 import java.io.IOException
 import java.nio.charset.StandardCharsets
@@ -67,6 +72,9 @@ class AppContainer(private val app: Application) {
         .writeTimeout(5, TimeUnit.MINUTES)
         .callTimeout(0, TimeUnit.MILLISECONDS)
         .retryOnConnectionFailure(false)
+        // Keenetic на HTTP/2 отвечает 401 на PROPFIND, хотя тот же пароль по HTTP/1.1 принимается.
+        .protocols(listOf(Protocol.HTTP_1_1))
+        .authenticator(BasicAuthenticator(settings))
         .addInterceptor(AuthInterceptor(settings))
         .apply {
             if (debug) {
@@ -123,5 +131,27 @@ private class AuthInterceptor(
                 .build()
         }
         return chain.proceed(authed)
+    }
+}
+
+private class BasicAuthenticator(
+    private val settings: SettingsRepository,
+) : Authenticator {
+    override fun authenticate(route: Route?, response: Response): Request? {
+        if (priorResponses(response) >= 2) return null
+        val saved = settings.snapshot() ?: return null
+        val value = Credentials.basic(saved.login, saved.password, StandardCharsets.UTF_8)
+        if (response.request.header("Authorization") == value) return null
+        return response.request.newBuilder().header("Authorization", value).build()
+    }
+
+    private fun priorResponses(response: Response): Int {
+        var count = 1
+        var prior = response.priorResponse
+        while (prior != null) {
+            count += 1
+            prior = prior.priorResponse
+        }
+        return count
     }
 }

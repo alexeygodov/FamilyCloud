@@ -85,10 +85,11 @@ fun ConnectionScreen(viewModel: ConnectionViewModel, onConnected: () -> Unit) {
     val saved by viewModel.saved.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsState()
     val error by viewModel.error.collectAsState()
-    var url by remember(saved) { mutableStateOf(saved?.baseUrl ?: "https://") }
-    var login by remember(saved) { mutableStateOf(saved?.login ?: "") }
-    var password by remember(saved) { mutableStateOf(saved?.password ?: "") }
-    var allowHttp by remember(saved) { mutableStateOf(saved?.allowHttp ?: false) }
+    val initial = remember { saved }
+    var url by remember { mutableStateOf(initial?.baseUrl ?: "https://") }
+    var login by remember { mutableStateOf(initial?.login ?: "") }
+    var password by remember { mutableStateOf(initial?.password ?: "") }
+    var allowHttp by remember { mutableStateOf(initial?.allowHttp ?: false) }
 
     Scaffold { padding ->
         Column(

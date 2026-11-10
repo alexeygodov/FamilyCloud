@@ -20,13 +20,13 @@ class WebDavRepository(
         val normalized = urls.normalizeBase(baseUrl) ?: return WebDavResult.Err(WebDavError.InvalidUrl)
         if (!urls.allowsScheme(normalized, allowHttp)) return WebDavResult.Err(WebDavError.InvalidUrl)
         val next = app.familycloud.data.settings.SavedConnection(normalized, login, password, allowHttp)
-        val previous = settings.snapshot()
-        settings.stage(next)
-        val listed = client.propfind(normalized, depth = 0)
-        if (listed is WebDavResult.Err) {
-            settings.stage(previous)
-            return listed
+        settings.beginAttempt(next)
+        val listed = try {
+            client.propfind(normalized, depth = 0)
+        } finally {
+            settings.endAttempt()
         }
+        if (listed is WebDavResult.Err) return listed
         settings.persist(next)
         return WebDavResult.Ok(Unit)
     }
