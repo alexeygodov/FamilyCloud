@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- HTTP доходит до приложения только если пользователь включил «Разрешить HTTP».
+         Код клиента отклоняет http, пока этот флаг выключен. -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
