@@ -166,6 +166,12 @@ class WebDavClient(
         private val length: Long,
         private val onProgress: (Long) -> Unit,
     ) : RequestBody() {
+        @Volatile private var activeCall: Call? = null
+
+        fun attach(call: Call) {
+            activeCall = call
+        }
+
         override fun contentType() = OCTET
         override fun contentLength() = length
         override fun isOneShot() = true
@@ -173,6 +179,7 @@ class WebDavClient(
             input.source().use { source ->
                 var sent = 0L
                 while (true) {
+                    if (activeCall?.isCanceled() == true) throw IOException("cancelled")
                     val read = source.read(sink.buffer, BUFFER)
                     if (read == -1L) break
                     sink.emitCompleteSegments()
@@ -185,6 +192,7 @@ class WebDavClient(
 
     private suspend fun Request.await(): Response = suspendCancellableCoroutine { continuation ->
         val call = http.newCall(this@await)
+        (body as? StreamingBody)?.attach(call)
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {

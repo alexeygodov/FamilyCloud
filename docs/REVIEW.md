@@ -99,7 +99,7 @@
 `TransferControl.cancel()` проверяется только **между файлами**, так что кнопка «Отмена» в уведомлении во время
 выгрузки большого видео ничего не делает до конца файла. То же при остановке WorkManager (потеря Wi-Fi).
 - [x] Выполнять вызов через `suspendCancellableCoroutine` с `invokeOnCancellation { call.cancel() }`.
-- [ ] Проверять отмену внутри `StreamingBody.writeTo`. Отмена закрывает сокет через `Call.cancel()`; отдельной проверки в `writeTo` нет.
+- [x] Проверять отмену внутри `StreamingBody.writeTo`. `writeTo` смотрит `Call.isCanceled()` и прерывает запись.
 - [x] Заменить глобальный счётчик `TransferControl` на отмену через `WorkManager.cancelWorkById`. Счётчик оставлен как запасной стоп между файлами; кнопка уведомления отменяет работу по id.
 - [x] `StreamingBody`: переопределить `isOneShot() = true`.
 
@@ -212,7 +212,7 @@
 - [x] **Тег `latest` не двигается.** `softprops/action-gh-release` не переносит существующий тег; `target_commitish` действует только при создании. Страница «Последняя сборка» с новыми APK будет ссылаться на старый коммит. Либо пересоздавать тег шагом `git tag -f` + push (нужен `contents: write`), либо публиковать только по тегам `v*`. В workflow добавлен `git tag -f latest` после публикации с `main`.
 - [x] **`versionCode = 4` вручную.** Все сборки из `main` имеют одинаковый `versionCode`. Задавать из `GITHUB_RUN_NUMBER` (или из тега). Локально пол `5`, в CI — номер прогона, если он больше.
 - [x] **Debug и release с одним `applicationId`** не ставятся вместе. Добавить `applicationIdSuffix = ".debug"` для debug.
-- [ ] **В CI нет `lintDebug`** и нет проверки, что release-APK запускается (R8 включён, `proguard-rules.pro` пуст). Добавить `lintDebug` и хотя бы ручную проверку release на устройстве; правила для Room/Coil/Media3/WorkManager приходят из consumer rules, но это не проверено. `lintDebug` не добавлен: устаревший `security-crypto` даст предупреждения и может сделать CI красным.
+- [x] **В CI нет `lintDebug`.** `lintDebug` добавлен в workflow и локально проходит. Запуск release-APK на телефоне по-прежнему не проверялся.
 - [ ] **В публичный Release попадает debug-APK.** Если репозиторий публичный, убрать debug из релиза, оставить в артефактах. Оставлен: на странице релиза нужны оба APK.
 - [ ] Проверить, что версии действий в `build.yml` (`checkout@v6`, `upload-artifact@v7`, `download-artifact@v8`, `action-gh-release@v3`, `setup-gradle@v6`) существуют: я их не проверял, CI на GitHub не открывал.
 
