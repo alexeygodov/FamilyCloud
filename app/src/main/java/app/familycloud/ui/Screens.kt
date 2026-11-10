@@ -1,6 +1,7 @@
 package app.familycloud.ui
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -56,7 +57,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,11 +70,16 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.ui.PlayerView
 import app.familycloud.R
@@ -78,7 +89,6 @@ import coil3.compose.AsyncImage
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 @Composable
 fun ConnectionScreen(viewModel: ConnectionViewModel, onConnected: () -> Unit) {
@@ -86,10 +96,11 @@ fun ConnectionScreen(viewModel: ConnectionViewModel, onConnected: () -> Unit) {
     val busy by viewModel.busy.collectAsState()
     val error by viewModel.error.collectAsState()
     val initial = remember { saved }
-    var url by remember { mutableStateOf(initial?.baseUrl ?: "https://") }
-    var login by remember { mutableStateOf(initial?.login ?: "") }
+    var url by rememberSaveable { mutableStateOf(initial?.baseUrl ?: "https://") }
+    var login by rememberSaveable { mutableStateOf(initial?.login ?: "") }
     var password by remember { mutableStateOf(initial?.password ?: "") }
-    var allowHttp by remember { mutableStateOf(initial?.allowHttp ?: false) }
+    var allowHttp by rememberSaveable { mutableStateOf(initial?.allowHttp ?: false) }
+    var showPassword by rememberSaveable { mutableStateOf(false) }
 
     Scaffold { padding ->
         Column(
@@ -106,6 +117,7 @@ fun ConnectionScreen(viewModel: ConnectionViewModel, onConnected: () -> Unit) {
                 label = { Text(stringResource(R.string.connection_url)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
             )
             OutlinedTextField(
                 value = login,
@@ -113,6 +125,7 @@ fun ConnectionScreen(viewModel: ConnectionViewModel, onConnected: () -> Unit) {
                 label = { Text(stringResource(R.string.connection_login)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
             )
             OutlinedTextField(
                 value = password,
@@ -120,6 +133,13 @@ fun ConnectionScreen(viewModel: ConnectionViewModel, onConnected: () -> Unit) {
                 label = { Text(stringResource(R.string.connection_password)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+                trailingIcon = {
+                    TextButton(onClick = { showPassword = !showPassword }) {
+                        Text(stringResource(if (showPassword) R.string.hide_password else R.string.show_password))
+                    }
+                },
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = allowHttp, onCheckedChange = { allowHttp = it })
@@ -157,15 +177,17 @@ fun BrowserScreen(
     val path by viewModel.path.collectAsState()
     val entries by viewModel.entries.collectAsState()
     val loading by viewModel.loading.collectAsState()
+    val transferring by viewModel.transferring.collectAsState()
     val message by viewModel.message.collectAsState()
+    val failure by viewModel.failure.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
-    var newFolder by remember { mutableStateOf(false) }
-    var folderName by remember { mutableStateOf("") }
     var menuEntry by remember { mutableStateOf<RemoteEntry?>(null) }
-    var renameEntry by remember { mutableStateOf<RemoteEntry?>(null) }
-    var renameText by remember { mutableStateOf("") }
-    var deleteEntry by remember { mutableStateOf<RemoteEntry?>(null) }
+    var newFolder by rememberSaveable { mutableStateOf(false) }
+    var folderName by rememberSaveable { mutableStateOf("") }
+    var renamePath by rememberSaveable { mutableStateOf<String?>(null) }
+    var renameText by rememberSaveable { mutableStateOf("") }
+    var deletePath by rememberSaveable { mutableStateOf<String?>(null) }
     val uploadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) viewModel.upload(uris)
     }
@@ -189,14 +211,14 @@ fun BrowserScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { newFolder = true }) {
+                        Icon(Icons.Filled.CreateNewFolder, stringResource(R.string.new_folder))
+                    }
                     if (picking) {
                         TextButton(onClick = { onConfirmFolder(path) }) { Text(stringResource(R.string.pick_here)) }
                     } else {
                         IconButton(onClick = { viewModel.refresh() }) {
                             Icon(Icons.Filled.Refresh, stringResource(R.string.refresh))
-                        }
-                        IconButton(onClick = { newFolder = true }) {
-                            Icon(Icons.Filled.CreateNewFolder, stringResource(R.string.new_folder))
                         }
                         IconButton(onClick = onSync) {
                             Icon(Icons.Filled.Sync, stringResource(R.string.sync_title))
@@ -218,7 +240,14 @@ fun BrowserScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (entries.isEmpty() && !loading) {
+            if (transferring) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (failure != null) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(failure.orEmpty(), color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = { viewModel.refresh() }) { Text(stringResource(R.string.retry)) }
+                }
+            }
+            if (entries.isEmpty() && !loading && failure == null) {
                 Text(
                     stringResource(R.string.empty_folder),
                     modifier = Modifier.padding(24.dp),
@@ -227,7 +256,7 @@ fun BrowserScreen(
             LazyColumn(contentPadding = PaddingValues(bottom = 88.dp)) {
                 items(entries, key = { it.relativePath }) { entry ->
                     ListItem(
-                        headlineContent = { Text(entry.name) },
+                        headlineContent = { Text(entry.label) },
                         supportingContent = { Text(details(entry)) },
                         leadingContent = {
                             Icon(
@@ -258,15 +287,8 @@ fun BrowserScreen(
                                     when (viewModel.kind(entry)) {
                                         FileKind.Image -> onOpenImage(encoded)
                                         FileKind.Video -> onOpenVideo(encoded)
-                                        FileKind.Other -> viewModel.openCached(entry) { uri, mime ->
-                                            val intent = Intent(Intent.ACTION_VIEW)
-                                                .setDataAndType(uri, mime)
-                                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            try {
-                                                context.startActivity(intent)
-                                            } catch (_: android.content.ActivityNotFoundException) {
-                                                viewModel.message.value = context.getString(R.string.error_open_external)
-                                            }
+                                        FileKind.Other -> viewModel.openExternally(entry) { uri, mime ->
+                                            tryView(context, uri, mime)
                                         }
                                     }
                                 }
@@ -289,31 +311,26 @@ fun BrowserScreen(
                                     text = { Text(stringResource(R.string.open)) },
                                     onClick = {
                                         menuEntry = null
-                                        viewModel.openCached(entry) { uri, mime ->
-                                            val intent = Intent(Intent.ACTION_VIEW)
-                                                .setDataAndType(uri, mime)
-                                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            try {
-                                                context.startActivity(intent)
-                                            } catch (_: android.content.ActivityNotFoundException) {
-                                                viewModel.message.value = context.getString(R.string.error_open_external)
-                                            }
+                                        viewModel.openExternally(entry) { uri, mime ->
+                                            tryView(context, uri, mime)
                                         }
                                     },
                                 )
                             }
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.download)) },
-                                onClick = {
-                                    menuEntry = null
-                                    viewModel.download(entry)
-                                },
-                            )
+                            if (!entry.isFolder) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.download)) },
+                                    onClick = {
+                                        menuEntry = null
+                                        viewModel.download(entry)
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.rename)) },
                                 onClick = {
                                     menuEntry = null
-                                    renameEntry = entry
+                                    renamePath = entry.relativePath
                                     renameText = entry.name
                                 },
                             )
@@ -339,7 +356,7 @@ fun BrowserScreen(
                                 text = { Text(stringResource(R.string.delete)) },
                                 onClick = {
                                     menuEntry = null
-                                    deleteEntry = entry
+                                    deletePath = entry.relativePath
                                 },
                             )
                         }
@@ -366,10 +383,10 @@ fun BrowserScreen(
             dismissButton = { TextButton(onClick = { newFolder = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
-    val renaming = renameEntry
+    val renaming = entries.firstOrNull { it.relativePath == renamePath }
     if (renaming != null) {
         AlertDialog(
-            onDismissRequest = { renameEntry = null },
+            onDismissRequest = { renamePath = null },
             title = { Text(stringResource(R.string.rename)) },
             text = {
                 OutlinedTextField(value = renameText, onValueChange = { renameText = it }, label = { Text(stringResource(R.string.new_name)) })
@@ -377,25 +394,25 @@ fun BrowserScreen(
             confirmButton = {
                 TextButton(onClick = {
                     if (renameText.isNotBlank()) viewModel.rename(renaming, renameText)
-                    renameEntry = null
+                    renamePath = null
                 }) { Text(stringResource(R.string.save)) }
             },
-            dismissButton = { TextButton(onClick = { renameEntry = null }) { Text(stringResource(R.string.cancel)) } },
+            dismissButton = { TextButton(onClick = { renamePath = null }) { Text(stringResource(R.string.cancel)) } },
         )
     }
-    val deleting = deleteEntry
+    val deleting = entries.firstOrNull { it.relativePath == deletePath }
     if (deleting != null) {
         AlertDialog(
-            onDismissRequest = { deleteEntry = null },
+            onDismissRequest = { deletePath = null },
             title = { Text(stringResource(R.string.delete)) },
-            text = { Text(stringResource(R.string.delete_confirm, deleting.name)) },
+            text = { Text(stringResource(R.string.delete_confirm, deleting.label)) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.delete(deleting)
-                    deleteEntry = null
+                    deletePath = null
                 }) { Text(stringResource(R.string.delete)) }
             },
-            dismissButton = { TextButton(onClick = { deleteEntry = null }) { Text(stringResource(R.string.cancel)) } },
+            dismissButton = { TextButton(onClick = { deletePath = null }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }
@@ -425,9 +442,9 @@ fun SyncScreen(
         }
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        viewModel.reload()
+        viewModel.loadAlbums()
+        showAlbums = true
     }
-    LaunchedEffect(Unit) { launcher.launch(permissions.toTypedArray()) }
     val partial = Build.VERSION.SDK_INT >= 34 &&
         ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) ==
         android.content.pm.PackageManager.PERMISSION_GRANTED &&
@@ -448,8 +465,23 @@ fun SyncScreen(
                         Icon(Icons.Filled.Sync, stringResource(R.string.sync_now))
                     }
                     IconButton(onClick = {
-                        viewModel.loadAlbums()
-                        showAlbums = true
+                        val images = if (Build.VERSION.SDK_INT >= 33) {
+                            android.Manifest.permission.READ_MEDIA_IMAGES
+                        } else {
+                            android.Manifest.permission.READ_EXTERNAL_STORAGE
+                        }
+                        val allowed = ContextCompat.checkSelfPermission(context, images) ==
+                            android.content.pm.PackageManager.PERMISSION_GRANTED ||
+                            (Build.VERSION.SDK_INT >= 34 && ContextCompat.checkSelfPermission(
+                                context,
+                                android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED)
+                        if (allowed) {
+                            viewModel.loadAlbums()
+                            showAlbums = true
+                        } else {
+                            launcher.launch(permissions.toTypedArray())
+                        }
                     }) {
                         Icon(Icons.Filled.Add, stringResource(R.string.sync_add))
                     }
@@ -460,6 +492,37 @@ fun SyncScreen(
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (partial) {
                 item { Text(stringResource(R.string.sync_partial), color = MaterialTheme.colorScheme.error) }
+            }
+            if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_MEDIA_LOCATION) !=
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                item { Text(stringResource(R.string.sync_location)) }
+            }
+            val imagesGranted = if (Build.VERSION.SDK_INT >= 33) {
+                ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_MEDIA_IMAGES) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED ||
+                    (Build.VERSION.SDK_INT >= 34 && ContextCompat.checkSelfPermission(
+                        context,
+                        android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED)
+            } else {
+                ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_EXTERNAL_STORAGE) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+            if (!imagesGranted) {
+                item {
+                    Column {
+                        Text(stringResource(R.string.sync_permission))
+                        TextButton(onClick = {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.parse("package:${context.packageName}"),
+                                ),
+                            )
+                        }) { Text(stringResource(R.string.open_settings)) }
+                    }
+                }
             }
             if (batteryOptimized) {
                 item {
@@ -479,9 +542,12 @@ fun SyncScreen(
                 Column(Modifier.fillMaxWidth()) {
                     Text(pair.albumName, style = MaterialTheme.typography.titleMedium)
                     Text(stringResource(R.string.sync_folder, pair.remoteFolder))
+                    if (pair.lastSyncEpochMs != null) {
+                        Text(stringResource(R.string.sync_last, formatDate(pair.lastSyncEpochMs)))
+                    }
                     Text(stringResource(R.string.sync_pending, row.pending))
                     if (pair.lastError != null) {
-                        Text(stringResource(R.string.sync_last_error, pair.lastError), color = MaterialTheme.colorScheme.error)
+                        Text(failureLabel(pair.lastError), color = MaterialTheme.colorScheme.error)
                     }
                     ToggleRow(stringResource(R.string.sync_enabled), pair.enabled) { viewModel.update(pair.copy(enabled = it)) }
                     ToggleRow(stringResource(R.string.sync_photos), pair.includePhotos) { viewModel.update(pair.copy(includePhotos = it)) }
@@ -574,6 +640,14 @@ fun VideoScreen(viewModel: VideoViewModel, onBack: () -> Unit) {
         if (player == null) {
             Text(stringResource(R.string.error_bad_path), modifier = Modifier.padding(padding).padding(24.dp))
         } else {
+            val lifecycleOwner = LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner, player) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_STOP) player.pause()
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+            }
             AndroidView(
                 factory = { context -> PlayerView(context).apply { this.player = player } },
                 modifier = Modifier.fillMaxSize().padding(padding),
@@ -583,24 +657,68 @@ fun VideoScreen(viewModel: VideoViewModel, onBack: () -> Unit) {
     }
 }
 
+@Composable
+private fun formatDate(epochMs: Long): String {
+    val locale = LocalConfiguration.current.locales[0]
+    return DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm", locale)
+        .format(Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()))
+}
+
+@Composable
+private fun failureLabel(code: String): String {
+    val http = code.removePrefix("HTTP_")
+    val text = when (code) {
+        "NETWORK" -> stringResource(R.string.error_network)
+        "TIMEOUT" -> stringResource(R.string.error_timeout)
+        "SSL" -> stringResource(R.string.error_ssl)
+        "HTTP_DISABLED" -> stringResource(R.string.error_http_off)
+        "UNAUTHORIZED" -> stringResource(R.string.error_unauthorized)
+        "FORBIDDEN" -> stringResource(R.string.error_forbidden)
+        "NOT_FOUND" -> stringResource(R.string.error_not_found)
+        "METHOD" -> stringResource(R.string.error_method)
+        "CONFLICT" -> stringResource(R.string.error_conflict)
+        "LOCKED" -> stringResource(R.string.error_locked)
+        "STORAGE" -> stringResource(R.string.error_storage)
+        "BAD_URL" -> stringResource(R.string.error_url)
+        "NO_CONNECTION" -> stringResource(R.string.error_no_connection)
+        "MEDIA_PERMISSION" -> stringResource(R.string.error_media_permission)
+        "BAD_FOLDER" -> stringResource(R.string.error_bad_folder)
+        "LOCAL_FILE" -> stringResource(R.string.error_open_file)
+        else -> if (code.startsWith("HTTP_") && http.toIntOrNull() != null) {
+            stringResource(R.string.error_http, http.toInt())
+        } else {
+            code
+        }
+    }
+    return stringResource(R.string.sync_last_error, text)
+}
+
+private fun tryView(context: android.content.Context, uri: Uri, mime: String): Boolean = try {
+    context.startActivity(
+        Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),
+    )
+    true
+} catch (_: android.content.ActivityNotFoundException) {
+    false
+}
+
+@Composable
 private fun details(entry: RemoteEntry): String {
-    val size = entry.size?.let(::formatSize).orEmpty()
-    val date = entry.modifiedEpochMs?.let { epoch ->
-        DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm", Locale.getDefault())
-            .format(Instant.ofEpochMilli(epoch).atZone(ZoneId.systemDefault()))
-    }.orEmpty()
+    val size = entry.size?.let { formatSize(it) }.orEmpty()
+    val date = entry.modifiedEpochMs?.let { formatDate(it) }.orEmpty()
     return listOf(size, date).filter { it.isNotEmpty() }.joinToString(" · ")
 }
 
+@Composable
 private fun formatSize(bytes: Long): String {
-    if (bytes < 1024) return "$bytes Б"
-    val units = listOf("КБ", "МБ", "ГБ")
+    if (bytes < 1024) return stringResource(R.string.size_bytes, bytes)
+    val units = listOf(stringResource(R.string.unit_kb), stringResource(R.string.unit_mb), stringResource(R.string.unit_gb))
     var value = bytes.toDouble()
-    var unit = "Б"
+    var unit = units.first()
     for (candidate in units) {
         value /= 1024.0
         unit = candidate
         if (value < 1024) break
     }
-    return String.format(Locale.getDefault(), "%.1f %s", value, unit)
+    return stringResource(R.string.size_unit, value, unit)
 }

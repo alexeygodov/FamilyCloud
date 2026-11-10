@@ -75,4 +75,17 @@
     <string name="error_unknown_size">Не удалось определить размер файла</string>
     <string name="error_open_external">Нет приложения, чтобы открыть этот файл</string>
     <string name="loading">Загрузка…</string>
+    <string name="retry">Повторить</string>
+    <string name="show_password">Показать</string>
+    <string name="hide_password">Скрыть</string>
+    <string name="error_bad_name">Имя не должно быть пустым, точкой или содержать /</string>
+    <string name="sync_location">Без доступа к местоположению фото выгружаются без GPS в EXIF.</string>
+    <string name="sync_permission">Нет доступа к фото и видео. Откройте настройки приложения и разрешите доступ, иначе синхронизация не увидит файлы.</string>
+    <string name="open_settings">Открыть настройки</string>
+    <string name="sync_last">Последняя синхронизация: %1$s</string>
+    <string name="size_bytes">%1$d Б</string>
+    <string name="size_unit">%1$.1f %2$s</string>
+    <string name="unit_kb">КБ</string>
+    <string name="unit_mb">МБ</string>
+    <string name="unit_gb">ГБ</string>
 </resources>

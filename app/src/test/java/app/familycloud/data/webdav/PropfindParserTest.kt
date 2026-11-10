@@ -87,4 +87,38 @@ class PropfindParserTest {
         assertEquals("dir/", parser.parse(lower, base).single().relativePath)
         assertEquals("plain.txt", parser.parse(plain, base).single().relativePath)
     }
+
+    @Test
+    fun nestedFolderKeepsPathFromWebDavRoot() {
+        val xml = """
+            <D:multistatus xmlns:D="DAV:">
+              <D:response>
+                <D:href>/webdav/Photos/</D:href>
+                <D:propstat>
+                  <D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop>
+                  <D:status>HTTP/1.1 200 OK</D:status>
+                </D:propstat>
+              </D:response>
+              <D:response>
+                <D:href>/webdav/Photos/a.jpg</D:href>
+                <D:propstat>
+                  <D:prop><D:displayname>Не то имя</D:displayname><D:getcontentlength>3</D:getcontentlength></D:prop>
+                  <D:status>HTTP/1.1 200 OK</D:status>
+                </D:propstat>
+              </D:response>
+              <D:response>
+                <D:href>/webdav/Photos/Sub/</D:href>
+                <D:propstat>
+                  <D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop>
+                  <D:status>HTTP/1.1 200 OK</D:status>
+                </D:propstat>
+              </D:response>
+            </D:multistatus>
+        """.trimIndent()
+        val entries = parser.parse(xml, base, base + "Photos/")
+        assertEquals(listOf("Photos/a.jpg", "Photos/Sub/"), entries.map { it.relativePath })
+        assertEquals("a.jpg", entries[0].name)
+        assertEquals("Не то имя", entries[0].label)
+        assertEquals("Sub", entries[1].name)
+    }
 }

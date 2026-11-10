@@ -41,6 +41,16 @@ class UrlBuilderTest {
     }
 
     @Test
+    fun encodesEmojiAsUtf8NotQuestionMarks() {
+        val file = urls.resolve(base, "😀 фото.jpg")
+        assertEquals(true, file!!.contains("%F0%9F%98%80"))
+        assertEquals(false, file.contains("%3F"))
+        assertEquals(false, urls.isSafeName(".."))
+        assertEquals(false, urls.isSafeName("a/b"))
+        assertEquals(true, urls.isSafeName("фото.jpg"))
+    }
+
+    @Test
     fun httpAllowedOnlyWhenRequested() {
         val http = "http://example.keenetic.link/webdav/"
         assertEquals(false, urls.allowsScheme(http, allowHttp = false))

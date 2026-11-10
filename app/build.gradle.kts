@@ -39,7 +39,7 @@ android {
         applicationId = "app.familycloud"
         minSdk = 26
         targetSdk = 37
-        versionCode = 4
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()?.takeIf { it > 5 } ?: 5)
         versionName = "1.0.1"
     }
 
@@ -67,6 +67,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -83,6 +87,10 @@ android {
 
 kotlin {
     jvmToolchain(17)
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {

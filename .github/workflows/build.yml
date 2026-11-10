@@ -32,7 +32,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
 
       - name: Unit tests and debug APK
-        run: ./gradlew testDebugUnitTest assembleDebug
+        run: ./gradlew lintDebug testDebugUnitTest assembleDebug
 
       - name: Prepare release signing
         id: signing
@@ -116,3 +116,13 @@ jobs:
           files: |
             dist/debug/*.apk
             dist/release/*.apk
+
+      - name: Checkout to move the floating tag
+        if: github.ref == 'refs/heads/main'
+        uses: actions/checkout@v6
+
+      - name: Move latest tag to this commit
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git tag -f latest
+          git push origin refs/tags/latest --force

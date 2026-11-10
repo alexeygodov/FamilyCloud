@@ -27,4 +27,15 @@ class RemoteNamesTest {
         assertEquals("video.part.mp4", partName("video.mp4"))
         assertEquals("readme.part", partName("readme"))
     }
+
+    @Test
+    fun interruptedUploadIsNotTreatedAsFinished() {
+        assertTrue(needsUpload(UploadedSnapshot(10, 20, incomplete = true), 10, 20))
+        assertTrue(needsUpload(null, 10, 20))
+    }
+
+    @Test
+    fun sameSizeMatchesNameIgnoringCase() {
+        assertEquals(NameDecision.AlreadyPresent, decideRemoteName("Clip.mp4", mapOf("clip.mp4" to 100L), 100))
+    }
 }

@@ -6,4 +6,5 @@ data class RemoteEntry(
     val isFolder: Boolean,
     val size: Long?,
     val modifiedEpochMs: Long?,
+    val label: String = name,
 )

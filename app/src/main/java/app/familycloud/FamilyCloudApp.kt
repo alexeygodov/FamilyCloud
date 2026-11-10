@@ -34,7 +34,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.Route
 import okio.Path.Companion.toOkioPath
-import java.io.IOException
+import app.familycloud.data.webdav.HttpDisabledException
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 
@@ -106,7 +106,9 @@ class AppContainer(private val app: Application) {
         }
         .build()
 
-    val database: AppDatabase = Room.databaseBuilder(app, AppDatabase::class.java, "familycloud.db").build()
+    val database: AppDatabase = Room.databaseBuilder(app, AppDatabase::class.java, "familycloud.db")
+        .addMigrations(AppDatabase.MIGRATION_1_2)
+        .build()
     val webdav = WebDavClient(http)
     val repository = WebDavRepository(webdav, settings, urls)
     val localFiles = LocalFiles(app, webdav)
@@ -121,7 +123,7 @@ private class AuthInterceptor(
         val request = chain.request()
         val saved: SavedConnection? = settings.snapshot()
         if (request.url.scheme == "http" && saved?.allowHttp != true) {
-            throw IOException("http-disabled")
+            throw HttpDisabledException()
         }
         val authed = if (saved == null) {
             request

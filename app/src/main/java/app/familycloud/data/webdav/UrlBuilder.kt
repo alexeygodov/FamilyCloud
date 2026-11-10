@@ -4,7 +4,6 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.net.URLDecoder
 import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 
 /**
  * Нормализует базовый URL и кодирует пути по сегментам.
@@ -78,14 +77,26 @@ class UrlBuilder {
         return base.resolve(trimmed)
     }
 
+    fun isSafeName(name: String): Boolean {
+        val trimmed = name.trim()
+        return trimmed.isNotEmpty() &&
+            trimmed != "." &&
+            trimmed != ".." &&
+            !trimmed.contains('/') &&
+            !trimmed.contains('\\')
+    }
+
     private fun lenient(value: String): HttpUrl? {
         value.toHttpUrlOrNull()?.let { return it }
         val encoded = buildString {
-            value.forEach { char ->
-                if (char.code < 128 && char != ' ') {
-                    append(char)
+            var index = 0
+            while (index < value.length) {
+                val code = value.codePointAt(index)
+                index += Character.charCount(code)
+                if (code < 128 && code != ' '.code) {
+                    append(code.toChar())
                 } else {
-                    append(URLEncoder.encode(char.toString(), StandardCharsets.UTF_8).replace("+", "%20"))
+                    append(percent(String(Character.toChars(code))))
                 }
             }
         }
@@ -94,20 +105,32 @@ class UrlBuilder {
 
     private fun encodeSegment(segment: String): String {
         return buildString {
-            segment.forEach { char ->
-                if (char.isLetterOrDigit() || char == '-' || char == '_' || char == '.' || char == '~') {
-                    append(char)
+            var index = 0
+            while (index < segment.length) {
+                val code = segment.codePointAt(index)
+                index += Character.charCount(code)
+                if (code < 128) {
+                    val char = code.toChar()
+                    if (char.isLetterOrDigit() || char == '-' || char == '_' || char == '.' || char == '~') {
+                        append(char)
+                    } else {
+                        append(percent(char.toString()))
+                    }
                 } else {
-                    append(URLEncoder.encode(char.toString(), StandardCharsets.UTF_8).replace("+", "%20"))
+                    append(percent(String(Character.toChars(code))))
                 }
             }
         }
     }
 
+    private fun percent(text: String): String {
+        return URLEncoder.encode(text, "UTF-8").replace("+", "%20")
+    }
+
     private fun decodePath(encoded: String): String {
         if (encoded.isEmpty()) return ""
         return encoded.split('/').joinToString("/") { segment ->
-            URLDecoder.decode(segment.replace("+", "%2B"), StandardCharsets.UTF_8)
+            URLDecoder.decode(segment.replace("+", "%2B"), "UTF-8")
         }
     }
 }

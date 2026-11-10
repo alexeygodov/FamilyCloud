@@ -21,10 +21,11 @@ fun decideRemoteName(
     existingSizes: Map<String, Long>,
     localSize: Long,
 ): NameDecision {
+    val lower = existingSizes.mapKeys { it.key.lowercase() }
     var index = 0
     while (index < 10_000) {
         val candidate = suffixedName(original, index)
-        val remoteSize = existingSizes[candidate]
+        val remoteSize = lower[candidate.lowercase()]
         if (remoteSize == null) return NameDecision.Upload(candidate)
         if (remoteSize == localSize) return NameDecision.AlreadyPresent
         index += 1

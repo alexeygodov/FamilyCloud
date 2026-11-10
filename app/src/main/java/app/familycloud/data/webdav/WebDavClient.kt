@@ -1,38 +1,62 @@
 package app.familycloud.data.webdav
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Authenticator
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Credentials
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import okio.BufferedSink
 import okio.source
+import java.io.IOException
 import java.io.InputStream
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLException
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class WebDavClient(
     private val http: OkHttpClient = defaultClient(),
 ) {
-    suspend fun propfind(url: String, depth: Int): WebDavResult<List<RemoteEntry>> = call(url) { target ->
+    suspend fun propfind(url: String, depth: Int, baseUrl: String = url): WebDavResult<List<RemoteEntry>> = call(url) { target ->
         val request = Request.Builder()
             .url(target)
             .header("Depth", depth.toString())
             .header("Content-Type", XML)
             .method("PROPFIND", PROPFIND_BODY)
             .build()
-        http.newCall(request).execute().use { response ->
+        request.await().use { response ->
             if (response.code == 207) {
                 val body = response.body.string()
-                WebDavResult.Ok(PropfindParser().parse(body, target))
+                WebDavResult.Ok(PropfindParser().parse(body, baseUrl, target))
             } else {
                 WebDavResult.Err(codeToError(response.code))
             }
         }
+    }
+
+    fun authenticated(login: String, password: String, allowHttp: Boolean): WebDavClient {
+        val header = Credentials.basic(login, password, StandardCharsets.UTF_8)
+        val builder = http.newBuilder()
+        builder.interceptors().clear()
+        val client = builder
+            .authenticator(Authenticator.NONE)
+            .addInterceptor { chain ->
+                if (chain.request().url.scheme == "http" && !allowHttp) throw HttpDisabledException()
+                chain.proceed(chain.request().newBuilder().header("Authorization", header).build())
+            }
+            .build()
+        return WebDavClient(client)
     }
 
     suspend fun mkcol(url: String): WebDavResult<Unit> = simple("MKCOL", url, success = setOf(201, 204))
@@ -57,7 +81,7 @@ class WebDavClient(
             .url(target)
             .put(StreamingBody(source, contentLength, onProgress))
             .build()
-        http.newCall(request).execute().use { response ->
+        request.await().use { response ->
             if (response.code in setOf(200, 201, 204)) {
                 WebDavResult.Ok(Unit)
             } else {
@@ -67,7 +91,7 @@ class WebDavClient(
     }
 
     suspend fun open(url: String): WebDavResult<ByteStream> = call(url) { target ->
-        val response = http.newCall(Request.Builder().url(target).get().build()).execute()
+        val response = Request.Builder().url(target).get().build().await()
         if (response.isSuccessful) {
             val body = response.body
             WebDavResult.Ok(ByteStream(body.byteStream(), body.contentLength(), response))
@@ -80,7 +104,7 @@ class WebDavClient(
     private suspend fun simple(method: String, url: String, success: Set<Int>): WebDavResult<Unit> {
         return call(url) { target ->
             val request = Request.Builder().url(target).method(method, null).build()
-            http.newCall(request).execute().use { response ->
+            request.await().use { response ->
                 if (response.code in success) WebDavResult.Ok(Unit) else WebDavResult.Err(codeToError(response.code))
             }
         }
@@ -98,7 +122,7 @@ class WebDavClient(
             .header("Overwrite", if (overwrite) "T" else "F")
             .method(method, null)
             .build()
-        http.newCall(request).execute().use { response ->
+        request.await().use { response ->
             if (response.code in setOf(201, 204)) {
                 WebDavResult.Ok(Unit)
             } else {
@@ -107,13 +131,15 @@ class WebDavClient(
         }
     }
 
-    private suspend fun <T> call(url: String, block: (String) -> WebDavResult<T>): WebDavResult<T> {
+    private suspend fun <T> call(url: String, block: suspend (String) -> WebDavResult<T>): WebDavResult<T> {
         if (url.toHttpUrlOrNull() == null) return WebDavResult.Err(WebDavError.InvalidUrl)
         return withContext(Dispatchers.IO) {
             try {
                 block(url)
             } catch (error: CancellationException) {
                 throw error
+            } catch (_: HttpDisabledException) {
+                WebDavResult.Err(WebDavError.HttpDisabled)
             } catch (error: SSLException) {
                 WebDavResult.Err(WebDavError.Ssl)
             } catch (_: java.net.SocketTimeoutException) {
@@ -142,6 +168,7 @@ class WebDavClient(
     ) : RequestBody() {
         override fun contentType() = OCTET
         override fun contentLength() = length
+        override fun isOneShot() = true
         override fun writeTo(sink: BufferedSink) {
             input.source().use { source ->
                 var sent = 0L
@@ -154,6 +181,21 @@ class WebDavClient(
                 }
             }
         }
+    }
+
+    private suspend fun Request.await(): Response = suspendCancellableCoroutine { continuation ->
+        val call = http.newCall(this@await)
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (continuation.isCancelled) return
+                continuation.resumeWithException(e)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                continuation.resume(response) { response.close() }
+            }
+        })
     }
 
     companion object {

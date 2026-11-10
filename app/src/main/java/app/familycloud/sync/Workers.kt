@@ -27,50 +27,55 @@ import app.familycloud.FamilyCloudApp
 import app.familycloud.R
 import app.familycloud.data.db.SyncPairEntity
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
-
-object TransferControl {
-    private val generation = AtomicInteger(0)
-
-    fun cancel() {
-        generation.incrementAndGet()
-    }
-
-    fun capture(): Int = generation.get()
-
-    fun isCancelled(token: Int): Boolean = generation.get() != token
-}
 
 class CancelWorkReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        TransferControl.cancel()
+        val workId = intent?.getStringExtra(WORK_ID) ?: return
+        WorkManager.getInstance(context).cancelWorkById(java.util.UUID.fromString(workId))
+    }
+
+    companion object {
+        const val WORK_ID = "work_id"
+    }
+}
+
+abstract class CloudWorker(
+    context: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(context, params) {
+    protected suspend fun tryForeground(info: ForegroundInfo): Boolean = try {
+        setForeground(info)
+        true
+    } catch (_: IllegalStateException) {
+        false
     }
 }
 
 class SyncWorker(
     context: Context,
     params: WorkerParameters,
-) : CoroutineWorker(context, params) {
+) : CloudWorker(context, params) {
     override suspend fun getForegroundInfo(): ForegroundInfo {
         return foreground(applicationContext.getString(R.string.sync_working))
     }
 
     override suspend fun doWork(): Result {
-        val token = TransferControl.capture()
         val app = applicationContext as FamilyCloudApp
         app.container.settings.load()
         val pairId = inputData.getLong(PAIR, -1L).takeIf { it >= 0L }
         val bypass = inputData.getBoolean(BYPASS, false)
-        setForeground(getForegroundInfo())
-        val message = app.container.sync.runSync(pairId, bypass, token) { done, total ->
-            setForeground(foreground(applicationContext.getString(R.string.sync_progress, done, total)))
+        var foregroundAllowed = true
+        val failure = app.container.sync.runSync(pairId, bypass) { done, total ->
+            if (foregroundAllowed) {
+                val info = foreground(applicationContext.getString(R.string.sync_progress, done, total))
+                foregroundAllowed = tryForeground(info)
+            }
         }
-        if (TransferControl.isCancelled(token)) return Result.success()
-        return if (isTransientFailure(applicationContext, message)) Result.retry() else Result.success()
+        return if (failure?.retryable == true) Result.retry() else Result.success()
     }
 
     private fun foreground(text: String): ForegroundInfo {
-        val notification = syncNotification(applicationContext, text)
+        val notification = syncNotification(applicationContext, text, id, cancellable = inputData.getBoolean(BYPASS, false))
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
@@ -88,23 +93,23 @@ class SyncWorker(
 class UploadWorker(
     context: Context,
     params: WorkerParameters,
-) : CoroutineWorker(context, params) {
+) : CloudWorker(context, params) {
     override suspend fun getForegroundInfo(): ForegroundInfo = foreground(applicationContext.getString(R.string.sync_working))
 
     override suspend fun doWork(): Result {
-        val token = TransferControl.capture()
         val app = applicationContext as FamilyCloudApp
         app.container.settings.load()
-        setForeground(getForegroundInfo())
-        val message = app.container.sync.runUploads(token) { done, total ->
-            setForeground(foreground(applicationContext.getString(R.string.sync_progress, done, total)))
+        var foregroundAllowed = true
+        val failure = app.container.sync.runUploads { done, total ->
+            if (foregroundAllowed) {
+                foregroundAllowed = tryForeground(foreground(applicationContext.getString(R.string.sync_progress, done, total)))
+            }
         }
-        if (TransferControl.isCancelled(token)) return Result.success()
-        return if (isTransientFailure(applicationContext, message)) Result.retry() else Result.success()
+        return if (failure?.retryable == true) Result.retry() else Result.success()
     }
 
     private fun foreground(text: String): ForegroundInfo {
-        val notification = syncNotification(applicationContext, text)
+        val notification = syncNotification(applicationContext, text, id, cancellable = true)
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ForegroundInfo(42, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
@@ -116,26 +121,29 @@ class UploadWorker(
 class MediaWatchWorker(
     context: Context,
     params: WorkerParameters,
-) : CoroutineWorker(context, params) {
+) : CloudWorker(context, params) {
     override suspend fun getForegroundInfo(): ForegroundInfo {
         return foreground(applicationContext.getString(R.string.sync_working))
     }
 
     override suspend fun doWork(): Result {
-        val token = TransferControl.capture()
         val app = applicationContext as FamilyCloudApp
         app.container.settings.load()
-        setForeground(getForegroundInfo())
-        val message = app.container.sync.runSync(null, bypassConstraints = false, token) { done, total ->
-            setForeground(foreground(applicationContext.getString(R.string.sync_progress, done, total)))
+        var foregroundAllowed = true
+        val failure = try {
+            app.container.sync.runSync(null, bypassConstraints = false) { done, total ->
+                if (foregroundAllowed) {
+                    foregroundAllowed = tryForeground(foreground(applicationContext.getString(R.string.sync_progress, done, total)))
+                }
+            }
+        } finally {
+            SyncScheduler.watchMedia(applicationContext, ExistingWorkPolicy.APPEND)
         }
-        SyncScheduler.watchMedia(applicationContext, ExistingWorkPolicy.APPEND)
-        if (TransferControl.isCancelled(token)) return Result.success()
-        return if (isTransientFailure(applicationContext, message)) Result.retry() else Result.success()
+        return if (failure?.retryable == true) Result.retry() else Result.success()
     }
 
     private fun foreground(text: String): ForegroundInfo {
-        val notification = syncNotification(applicationContext, text)
+        val notification = syncNotification(applicationContext, text, id, cancellable = false)
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ForegroundInfo(43, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
@@ -171,6 +179,8 @@ object SyncScheduler {
         val constraints = Constraints.Builder()
             .addContentUriTrigger(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true)
             .addContentUriTrigger(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true)
+            .setTriggerContentUpdateDelay(java.time.Duration.ofSeconds(30))
+            .setTriggerContentMaxDelay(java.time.Duration.ofMinutes(2))
             .build()
         val request = OneTimeWorkRequestBuilder<MediaWatchWorker>()
             .setConstraints(constraints)
@@ -196,28 +206,33 @@ object SyncScheduler {
     }
 }
 
-internal fun syncNotification(context: Context, text: String): android.app.Notification {
+internal fun syncNotification(
+    context: Context,
+    text: String,
+    workId: java.util.UUID,
+    cancellable: Boolean,
+): android.app.Notification {
     val channelId = "sync"
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        val manager = context.getSystemService(NotificationManager::class.java)
-        val channel = NotificationChannel(
-            channelId,
-            context.getString(R.string.sync_channel),
-            NotificationManager.IMPORTANCE_LOW,
-        )
-        manager?.createNotificationChannel(channel)
-    }
-    val cancel = PendingIntent.getBroadcast(
-        context,
-        7,
-        Intent(context, CancelWorkReceiver::class.java),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    val manager = context.getSystemService(NotificationManager::class.java)
+    val channel = NotificationChannel(
+        channelId,
+        context.getString(R.string.sync_channel),
+        NotificationManager.IMPORTANCE_LOW,
     )
-    return NotificationCompat.Builder(context, channelId)
+    manager?.createNotificationChannel(channel)
+    val builder = NotificationCompat.Builder(context, channelId)
         .setSmallIcon(R.drawable.ic_stat_cloud)
         .setContentTitle(context.getString(R.string.sync_notification_title))
         .setContentText(text)
         .setOngoing(true)
-        .addAction(0, context.getString(R.string.cancel), cancel)
-        .build()
+    if (cancellable) {
+        val cancel = PendingIntent.getBroadcast(
+            context,
+            workId.hashCode(),
+            Intent(context, CancelWorkReceiver::class.java).putExtra(CancelWorkReceiver.WORK_ID, workId.toString()),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        builder.addAction(0, context.getString(R.string.cancel), cancel)
+    }
+    return builder.build()
 }

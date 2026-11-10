@@ -4,6 +4,8 @@ import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 data class LocalAlbum(val bucketId: String, val name: String)
 
@@ -19,26 +21,35 @@ data class LocalMedia(
 )
 
 class MediaScanner(private val context: Context) {
-    fun albums(): List<LocalAlbum> {
+    suspend fun albums(): List<LocalAlbum> = withContext(Dispatchers.IO) {
         val found = linkedMapOf<String, String>()
-        scan(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, video = false) { item ->
-            found.putIfAbsent(item.bucketId, item.albumName)
-        }
-        scan(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, video = true) { item ->
-            found.putIfAbsent(item.bucketId, item.albumName)
-        }
-        return found.map { (id, name) -> LocalAlbum(id, name) }.sortedBy { it.name.lowercase() }
+        buckets(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, found)
+        buckets(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, found)
+        found.map { (id, name) -> LocalAlbum(id, name) }.sortedBy { it.name.lowercase() }
     }
 
-    fun files(bucketId: String, photos: Boolean, videos: Boolean, modifiedSinceMillis: Long?): List<LocalMedia> {
-        val result = mutableListOf<LocalMedia>()
-        if (photos) {
-            scan(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, video = false, bucketId, modifiedSinceMillis, result::add)
+    suspend fun files(bucketId: String, photos: Boolean, videos: Boolean, modifiedSinceMillis: Long?): List<LocalMedia> =
+        withContext(Dispatchers.IO) {
+            val result = mutableListOf<LocalMedia>()
+            if (photos) {
+                scan(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, video = false, bucketId, modifiedSinceMillis, result::add)
+            }
+            if (videos) {
+                scan(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, video = true, bucketId, modifiedSinceMillis, result::add)
+            }
+            result
         }
-        if (videos) {
-            scan(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, video = true, bucketId, modifiedSinceMillis, result::add)
+
+    private fun buckets(collection: Uri, into: MutableMap<String, String>) {
+        val projection = arrayOf(BUCKET_ID, BUCKET_NAME)
+        context.contentResolver.query(collection, projection, null, null, null)?.use { cursor ->
+            val bucketCol = cursor.getColumnIndexOrThrow(BUCKET_ID)
+            val albumCol = cursor.getColumnIndexOrThrow(BUCKET_NAME)
+            while (cursor.moveToNext()) {
+                val id = cursor.getString(bucketCol) ?: continue
+                into.putIfAbsent(id, cursor.getString(albumCol) ?: "")
+            }
         }
-        return result
     }
 
     private fun scan(

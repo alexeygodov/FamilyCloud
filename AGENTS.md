@@ -13,6 +13,8 @@ CI зелёный: https://github.com/alexeygodov/FamilyCloud/actions/runs/42799
 На релизе есть debug и подписанный release APK: https://github.com/alexeygodov/FamilyCloud/releases/tag/latest
 Локально проверены юнит-тесты и подпись release (v2 и v3). Телефон и роутер Keenetic не проверялись — список в `docs/SERVER_NOTES.md`.
 
+**Повторное ревью R1–R11 исправлено локально: `testDebugUnitTest` и `lintDebug` проходят. На телефоне и Keenetic не проверялось. В git это ещё не отправлено.**
+
 ## Область работ
 
 - Работай только внутри `cloud-app/`. Каталог `../vpn/` — другой проект, не трогай.

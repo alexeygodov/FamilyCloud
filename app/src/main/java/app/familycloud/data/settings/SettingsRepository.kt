@@ -76,6 +76,15 @@ class SettingsRepository(context: Context) {
     fun snapshot(): SavedConnection? = attempt ?: state.value
 
     private fun createSecurePrefs(context: Context): SharedPreferences {
+        return try {
+            openSecure(context)
+        } catch (_: Exception) {
+            context.deleteSharedPreferences(SECURE_FILE)
+            openSecure(context)
+        }
+    }
+
+    private fun openSecure(context: Context): SharedPreferences {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()

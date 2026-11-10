@@ -7,6 +7,8 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Entity(primaryKeys = ["pairId", "mediaStoreId"])
 data class UploadedEntity(
@@ -35,6 +37,11 @@ data class SyncPairEntity(
 )
 
 @Entity
+data class OrphanPartEntity(
+    @androidx.room.PrimaryKey val remotePath: String,
+)
+
+@Entity
 data class PendingUploadEntity(
     @androidx.room.PrimaryKey(autoGenerate = true) val id: Long = 0,
     val sourceUri: String,
@@ -54,8 +61,8 @@ interface UploadedDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: UploadedEntity)
 
-    @Query("UPDATE UploadedEntity SET partPath = NULL WHERE pairId = :pairId AND mediaStoreId = :mediaStoreId")
-    suspend fun clearPart(pairId: Long, mediaStoreId: Long)
+    @Query("DELETE FROM UploadedEntity WHERE pairId = :pairId AND mediaStoreId = :mediaStoreId")
+    suspend fun deleteOne(pairId: Long, mediaStoreId: Long)
 }
 
 @Dao
@@ -94,13 +101,36 @@ interface PendingUploadDao {
     suspend fun delete(id: Long)
 }
 
+@Dao
+interface OrphanPartDao {
+    @Query("SELECT * FROM OrphanPartEntity")
+    suspend fun all(): List<OrphanPartEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(entity: OrphanPartEntity)
+
+    @Query("DELETE FROM OrphanPartEntity WHERE remotePath = :remotePath")
+    suspend fun delete(remotePath: String)
+}
+
 @Database(
-    entities = [UploadedEntity::class, SyncPairEntity::class, PendingUploadEntity::class],
-    version = 1,
-    exportSchema = false,
+    entities = [UploadedEntity::class, SyncPairEntity::class, PendingUploadEntity::class, OrphanPartEntity::class],
+    version = 2,
+    exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun uploadedDao(): UploadedDao
     abstract fun syncPairDao(): SyncPairDao
     abstract fun pendingUploadDao(): PendingUploadDao
+    abstract fun orphanPartDao(): OrphanPartDao
+
+    companion object {
+        val MIGRATION_1_2: Migration = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `OrphanPartEntity` (`remotePath` TEXT NOT NULL, PRIMARY KEY(`remotePath`))",
+                )
+            }
+        }
+    }
 }

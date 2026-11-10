@@ -10,8 +10,9 @@ import java.util.Locale
 class PropfindParser(
     private val urls: UrlBuilder = UrlBuilder(),
 ) {
-    fun parse(xml: String, requestUrl: String): List<RemoteEntry> {
+    fun parse(xml: String, baseUrl: String, requestUrl: String = baseUrl): List<RemoteEntry> {
         if (xml.isBlank()) return emptyList()
+        val requested = urls.relativeOf(baseUrl, requestUrl).orEmpty().trim('/')
         val parser = XmlPullParserFactory.newInstance().apply { isNamespaceAware = false }.newPullParser()
         parser.setInput(StringReader(xml))
         val entries = mutableListOf<RemoteEntry>()
@@ -20,17 +21,27 @@ class PropfindParser(
             if (event == XmlPullParser.START_TAG && parser.local() == "response") {
                 val raw = parseResponse(parser)
                 if (raw != null) {
-                    val relative = urls.relativeOf(requestUrl, raw.href)
-                    if (!relative.isNullOrEmpty() && relative != "/") {
+                    val relative = urls.relativeOf(baseUrl, raw.href)
+                    if (relative != null && relative.trim('/') != requested && relative != "/") {
                         val folder = raw.isFolder || relative.endsWith("/")
-                        val name = raw.displayName?.takeIf { it.isNotBlank() } ?: urls.fileName(relative)
-                        entries += RemoteEntry(
-                            relativePath = relative,
-                            name = name,
-                            isFolder = folder,
-                            size = if (folder) null else raw.size,
-                            modifiedEpochMs = raw.modifiedEpochMs,
-                        )
+                        val stored = when {
+                            relative.isEmpty() -> relative
+                            folder && !relative.endsWith("/") -> "$relative/"
+                            !folder -> relative.trimEnd('/')
+                            else -> relative
+                        }
+                        if (stored.trim('/').isNotEmpty()) {
+                            val hrefName = urls.fileName(stored)
+                            val label = raw.displayName?.takeIf { it.isNotBlank() } ?: hrefName
+                            entries += RemoteEntry(
+                                relativePath = stored,
+                                name = hrefName,
+                                label = label,
+                                isFolder = folder,
+                                size = if (folder) null else raw.size,
+                                modifiedEpochMs = raw.modifiedEpochMs,
+                            )
+                        }
                     }
                 }
             }

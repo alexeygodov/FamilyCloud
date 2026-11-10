@@ -1,9 +1,13 @@
 package app.familycloud.sync
 
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
 import android.os.BatteryManager
+import android.os.Build
+import android.provider.MediaStore
 import app.familycloud.R
 import app.familycloud.data.db.AppDatabase
 import app.familycloud.data.db.PendingUploadEntity
@@ -14,7 +18,8 @@ import app.familycloud.data.webdav.UrlBuilder
 import app.familycloud.data.webdav.WebDavClient
 import app.familycloud.data.webdav.WebDavError
 import app.familycloud.data.webdav.WebDavResult
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.InputStream
@@ -28,7 +33,15 @@ class SyncRepository(
     private val settings: SettingsRepository,
     private val urls: UrlBuilder,
 ) {
-    private val lock = Mutex()
+    private val syncLock = Mutex()
+    private val uploadLock = Mutex()
+    private val engine = UploadEngine(
+        store = RoomUploadStore(database.uploadedDao()),
+        remote = WebDavRemote(client),
+        urls = urls,
+        openStream = { key, mediaStore -> openOriginal(Uri.parse(key), mediaStore) },
+        lengthOf = { key, reported -> byteLength(Uri.parse(key), reported) },
+    )
 
     suspend fun pairs(): List<SyncPairEntity> = database.syncPairDao().all()
 
@@ -50,14 +63,8 @@ class SyncRepository(
 
     suspend fun pendingCount(pair: SyncPairEntity): Int {
         val files = scanner.files(pair.bucketId, pair.includePhotos, pair.includeVideos, pair.onlyNewSinceEpochMs)
-        val known = database.uploadedDao().forPair(pair.id).associateBy { it.mediaStoreId }
-        return files.count { file ->
-            needsUpload(
-                known[file.id]?.let { UploadedSnapshot(it.size, it.dateModified, it.partPath != null) },
-                file.size,
-                file.dateModifiedMillis,
-            )
-        }
+        val known = database.uploadedDao().forPair(pair.id)
+        return engine.pending(files.map { it.toPending() }, known).size
     }
 
     suspend fun enqueueUploads(items: List<PendingUploadEntity>) {
@@ -68,21 +75,21 @@ class SyncRepository(
     suspend fun runSync(
         pairId: Long?,
         bypassConstraints: Boolean,
-        token: Int,
         onProgress: suspend (done: Int, total: Int) -> Unit,
-    ): String? = lock.withLock {
-        val connection = settings.snapshot() ?: return context.getString(R.string.error_no_connection)
-        cleanupParts(connection.baseUrl)
+    ): SyncFailure? = syncLock.withLock {
+        val connection = settings.snapshot() ?: return SyncFailure.NoConnection
+        engine.cleanupParts(connection.baseUrl)
+        cleanupOrphans(connection.baseUrl)
         val selected = database.syncPairDao().all().filter { it.enabled && (pairId == null || it.id == pairId) }
-        var firstError: String? = null
+        var firstError: SyncFailure? = null
         for (pair in selected) {
-            if (TransferControl.isCancelled(token)) return null
+            currentCoroutineContext().ensureActive()
             if (!bypassConstraints && !constraintsMet(pair)) continue
-            val error = syncPair(pair, connection.baseUrl, token, onProgress)
+            val error = syncPair(pair, connection.baseUrl, onProgress)
             database.syncPairDao().update(
                 pair.copy(
                     lastSyncEpochMs = System.currentTimeMillis(),
-                    lastError = error,
+                    lastError = error?.code,
                 ),
             )
             if (error != null && firstError == null) firstError = error
@@ -90,20 +97,21 @@ class SyncRepository(
         firstError
     }
 
-    suspend fun runUploads(token: Int, onProgress: suspend (done: Int, total: Int) -> Unit): String? = lock.withLock {
-        val base = settings.snapshot()?.baseUrl ?: return context.getString(R.string.error_no_connection)
+    suspend fun runUploads(onProgress: suspend (done: Int, total: Int) -> Unit): SyncFailure? = uploadLock.withLock {
+        val base = settings.snapshot()?.baseUrl ?: return SyncFailure.NoConnection
+        cleanupOrphans(base)
         var done = 0
-        var firstError: String? = null
+        var firstError: SyncFailure? = null
         while (true) {
             val item = database.pendingUploadDao().next() ?: break
-            if (TransferControl.isCancelled(token)) return null
+            currentCoroutineContext().ensureActive()
             val total = done + database.pendingUploadDao().count()
             onProgress(done, total)
             val error = uploadDocument(base, item)
             if (error == null) {
                 database.pendingUploadDao().delete(item.id)
                 done += 1
-            } else if (isTransient(error)) {
+            } else if (error.retryable) {
                 firstError = error
                 break
             } else {
@@ -117,141 +125,47 @@ class SyncRepository(
     private suspend fun syncPair(
         pair: SyncPairEntity,
         baseUrl: String,
-        token: Int,
         onProgress: suspend (done: Int, total: Int) -> Unit,
-    ): String? {
+    ): SyncFailure? {
         val files = try {
             scanner.files(pair.bucketId, pair.includePhotos, pair.includeVideos, pair.onlyNewSinceEpochMs)
         } catch (error: CancellationException) {
             throw error
         } catch (_: SecurityException) {
-            return context.getString(R.string.error_media_permission)
+            return SyncFailure.MediaPermission
         }
-        val known = database.uploadedDao().forPair(pair.id).associateBy { it.mediaStoreId }
-        val pending = files.filter { file ->
-            needsUpload(known[file.id]?.let { UploadedSnapshot(it.size, it.dateModified, it.partPath != null) }, file.size, file.dateModifiedMillis)
-        }
-        val folderUrl = urls.resolve(baseUrl, pair.remoteFolder) ?: return context.getString(R.string.error_bad_folder)
-        val listing = when (val result = client.propfind(folderUrl, depth = 1)) {
-            is WebDavResult.Err -> return errorText(context, result.error)
+        val known = database.uploadedDao().forPair(pair.id)
+        val pending = engine.pending(files.map { it.toPending() }, known)
+        val folderUrl = urls.resolve(baseUrl, pair.remoteFolder) ?: return SyncFailure.BadFolder
+        val listing = when (val result = client.propfind(folderUrl, depth = 1, baseUrl)) {
+            is WebDavResult.Err -> return SyncFailure.Web(result.error)
             is WebDavResult.Ok -> result.value
         }
         val sizes = listing.filter { !it.isFolder }.associate { it.name to (it.size ?: -1L) }.toMutableMap()
-        var fileError: String? = null
-        for ((index, file) in pending.withIndex()) {
-            if (TransferControl.isCancelled(token)) return null
-            onProgress(index, pending.size)
-            val decision = decideRemoteName(file.displayName, sizes, file.size)
-            if (decision is NameDecision.AlreadyPresent) {
-                database.uploadedDao().upsert(
-                    UploadedEntity(pair.id, file.id, pair.remoteFolder + file.displayName, file.size, file.dateModifiedMillis, null),
-                )
-                continue
-            }
-            val remoteName = (decision as NameDecision.Upload).fileName
-            val error = uploadMedia(baseUrl, pair, file, remoteName)
-            if (error != null) {
-                if (isTransient(error)) return error
-                fileError = error
-                continue
-            }
-            sizes[remoteName] = file.size
-            onProgress(index + 1, pending.size)
-        }
-        return fileError
+        return engine.uploadBatch(baseUrl, pair.id, pair.remoteFolder, pending, sizes, onProgress)
     }
 
-    private suspend fun uploadMedia(
-        baseUrl: String,
-        pair: SyncPairEntity,
-        file: LocalMedia,
-        remoteName: String,
-    ): String? {
-        val finalRelative = pair.remoteFolder + remoteName
-        val partRelative = pair.remoteFolder + partName(remoteName)
-        val partUrl = urls.resolve(baseUrl, partRelative) ?: return context.getString(R.string.error_bad_path)
-        val finalUrl = urls.resolve(baseUrl, finalRelative) ?: return context.getString(R.string.error_bad_path)
-        database.uploadedDao().upsert(
-            UploadedEntity(pair.id, file.id, finalRelative, file.size, file.dateModifiedMillis, partRelative),
-        )
-        var uploaded = false
-        var lastError: String? = null
-        for (attempt in 0 until 3) {
-            val stream = context.contentResolver.openInputStream(file.uri) ?: return context.getString(R.string.error_open_file)
-            val put = client.put(partUrl, stream, file.size) {}
-            stream.close()
-            when (put) {
-                is WebDavResult.Ok -> {
-                    uploaded = true
-                    break
-                }
-                is WebDavResult.Err -> {
-                    lastError = errorText(context, put.error)
-                    delay(1000L * (1 shl attempt))
-                }
-            }
-        }
-        if (!uploaded) return lastError
-        return when (val moved = client.move(partUrl, finalUrl)) {
-            is WebDavResult.Err -> errorText(context, moved.error)
-            is WebDavResult.Ok -> {
-                database.uploadedDao().upsert(
-                    UploadedEntity(pair.id, file.id, finalRelative, file.size, file.dateModifiedMillis, null),
-                )
-                null
-            }
-        }
-    }
-
-    private suspend fun uploadDocument(baseUrl: String, item: PendingUploadEntity): String? {
+    private suspend fun uploadDocument(baseUrl: String, item: PendingUploadEntity): SyncFailure? {
         val folder = if (item.destinationFolder.endsWith("/")) item.destinationFolder else "${item.destinationFolder}/"
-        val folderUrl = urls.resolve(baseUrl, folder) ?: return context.getString(R.string.error_bad_folder)
-        val listing = when (val result = client.propfind(folderUrl, 1)) {
-            is WebDavResult.Err -> return errorText(context, result.error)
+        val folderUrl = urls.resolve(baseUrl, folder) ?: return SyncFailure.BadFolder
+        val listing = when (val result = client.propfind(folderUrl, 1, baseUrl)) {
+            is WebDavResult.Err -> return SyncFailure.Web(result.error)
             is WebDavResult.Ok -> result.value
         }
         val sizes = listing.filter { !it.isFolder }.associate { it.name to (it.size ?: -1L) }
         val decision = decideRemoteName(item.displayName, sizes, item.size)
         if (decision is NameDecision.AlreadyPresent) return null
         val remoteName = (decision as NameDecision.Upload).fileName
-        val partUrl = urls.resolve(baseUrl, folder + partName(remoteName)) ?: return context.getString(R.string.error_bad_path)
-        val finalUrl = urls.resolve(baseUrl, folder + remoteName) ?: return context.getString(R.string.error_bad_path)
-        val uri = android.net.Uri.parse(item.sourceUri)
-        var uploaded = false
-        var last: String? = null
-        for (attempt in 0 until 3) {
-            val stream: InputStream = context.contentResolver.openInputStream(uri) ?: return context.getString(R.string.error_open_file)
-            when (val put = client.put(partUrl, stream, item.size) {}) {
-                is WebDavResult.Ok -> {
-                    stream.close()
-                    uploaded = true
-                    break
-                }
-                is WebDavResult.Err -> {
-                    stream.close()
-                    last = errorText(context, put.error)
-                    delay(1000L * (1 shl attempt))
-                }
-            }
-        }
-        if (!uploaded) {
-            client.delete(partUrl)
-            return last
-        }
-        return when (val moved = client.move(partUrl, finalUrl)) {
-            is WebDavResult.Err -> errorText(context, moved.error)
-            is WebDavResult.Ok -> null
-        }
+        val outcome = engine.uploadLoose(baseUrl, folder, remoteName, item.size, item.sourceUri)
+        val orphan = outcome.orphanRelative
+        if (orphan != null) database.orphanPartDao().insert(app.familycloud.data.db.OrphanPartEntity(orphan))
+        return outcome.failure
     }
 
-    private suspend fun cleanupParts(baseUrl: String) {
-        database.uploadedDao().withParts().forEach { row ->
-            val part = row.partPath ?: return@forEach
-            val url = urls.resolve(baseUrl, part) ?: return@forEach
-            when (client.delete(url)) {
-                is WebDavResult.Ok -> database.uploadedDao().clearPart(row.pairId, row.mediaStoreId)
-                is WebDavResult.Err -> Unit
-            }
+    private suspend fun cleanupOrphans(baseUrl: String) {
+        database.orphanPartDao().all().forEach { row ->
+            val url = urls.resolve(baseUrl, row.remotePath) ?: return@forEach
+            if (client.delete(url) is WebDavResult.Ok) database.orphanPartDao().delete(row.remotePath)
         }
     }
 
@@ -272,14 +186,56 @@ class SyncRepository(
         return battery.isCharging
     }
 
-    private fun isTransient(message: String): Boolean = isTransientFailure(context, message)
+    private fun openOriginal(uri: Uri, isMediaStore: Boolean): InputStream? {
+        val canRequestOriginal = isMediaStore &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            context.checkSelfPermission(android.Manifest.permission.ACCESS_MEDIA_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+        if (canRequestOriginal) {
+            try {
+                return context.contentResolver.openInputStream(MediaStore.setRequireOriginal(uri))
+            } catch (_: Exception) {
+                Unit
+            }
+        }
+        return context.contentResolver.openInputStream(uri)
+    }
+
+    private fun byteLength(uri: Uri, reported: Long): Long {
+        return try {
+            context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { descriptor ->
+                if (descriptor.length >= 0) descriptor.length else reported
+            } ?: reported
+        } catch (_: Exception) {
+            reported
+        }
+    }
+
+    private fun LocalMedia.toPending() = PendingFile(
+        id = id,
+        displayName = displayName,
+        size = size,
+        dateModified = dateModifiedMillis,
+        sourceKey = uri.toString(),
+        mediaStore = true,
+    )
 }
 
-fun isTransientFailure(context: Context, message: String?): Boolean {
-    if (message == null) return false
-    return message == context.getString(R.string.error_network) ||
-        message == context.getString(R.string.error_timeout) ||
-        message == context.getString(R.string.error_no_connection)
+private class RoomUploadStore(
+    private val dao: app.familycloud.data.db.UploadedDao,
+) : UploadStore {
+    override suspend fun forPair(pairId: Long) = dao.forPair(pairId)
+    override suspend fun withParts() = dao.withParts()
+    override suspend fun upsert(entity: UploadedEntity) = dao.upsert(entity)
+    override suspend fun deleteOne(pairId: Long, mediaStoreId: Long) = dao.deleteOne(pairId, mediaStoreId)
+}
+
+private class WebDavRemote(
+    private val client: WebDavClient,
+) : RemoteFiles {
+    override suspend fun put(url: String, source: InputStream, length: Long) = client.put(url, source, length) {}
+    override suspend fun move(from: String, to: String) = client.move(from, to)
+    override suspend fun delete(url: String) = client.delete(url)
 }
 
 fun errorText(context: Context, error: WebDavError): String = when (error) {
@@ -294,5 +250,6 @@ fun errorText(context: Context, error: WebDavError): String = when (error) {
     WebDavError.Ssl -> context.getString(R.string.error_ssl)
     WebDavError.InvalidUrl -> context.getString(R.string.error_url)
     WebDavError.Network -> context.getString(R.string.error_network)
+    WebDavError.HttpDisabled -> context.getString(R.string.error_http_off)
     is WebDavError.Http -> context.getString(R.string.error_http, error.code)
 }
