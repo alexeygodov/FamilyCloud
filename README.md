@@ -12,7 +12,9 @@ Android-клиент WebDAV для роутера Keenetic: файловый м�
 ./gradlew testDebugUnitTest assembleDebug
 ```
 
-Debug-APK: `app/build/outputs/apk/debug/app-debug.apk`. Его же workflow кладёт в артефакты GitHub Actions.
+Debug-APK локально: `app/build/outputs/apk/debug/app-debug.apk`.
+
+Каждый push в `main` собирает APK на GitHub и обновляет страницу [Последняя сборка](https://github.com/alexeygodov/FamilyCloud/releases/tag/latest): `app-release.apk` (подписанный) и `app-debug.apk`. Тег `v*` публикует отдельный релиз с этими же файлами.
 
 Репозиторий приложения — эта папка (`cloud-app/`), не родительский каталог. Workflow GitHub запускается только из корня репозитория. Ветка по умолчанию — `main`.
 
@@ -60,4 +62,4 @@ keyAlias=familycloud
 keyPassword=<пароль ключа>
 ```
 
-Тег `v*` публикует GitHub Release с подписанным APK. Если секретов нет, релиз не создаётся.
+Тег `v*` публикует отдельный GitHub Release. Если секретов подписи нет, release-APK не собирается и релиз не создаётся.
