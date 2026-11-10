@@ -9,8 +9,8 @@ Android-клиент WebDAV (роутер Keenetic KN-1010, KeeneticOS 5.0): ф�
 ## Статус
 
 M0 закрыт. Репозиторий: https://github.com/alexeygodov/FamilyCloud
-CI зелёный, debug-APK в артефактах: https://github.com/alexeygodov/FamilyCloud/actions/runs/42786122402
-Следующий этап — M1, только после явной просьбы пользователя. Секреты подписи ещё не заданы, release-APK не собирался.
+CI зелёный, в артефактах есть debug и подписанный release APK: https://github.com/alexeygodov/FamilyCloud/actions/runs/42790698907
+Keystore в git не хранится. Следующий этап — M1, только после явной просьбы пользователя.
 
 ## Область работ
 
