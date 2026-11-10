@@ -1,0 +1,33 @@
+---
+description: GitHub Actions, подпись APK и обращение с секретами в FamilyCloud Android
+globs: .github/**,**/*.gradle.kts,gradle/**,**/proguard-rules.pro
+alwaysApply: false
+---
+
+# CI и секреты
+
+- Workflow — `.github/workflows/build.yml`, детали в `SPEC.md` раздел 7.
+- Секреты подписи только из `secrets.*`: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`.
+  Не печатай их (`echo`, `set -x`, `cat`), не записывай в артефакты.
+- Keystore декодируй во временный файл вне рабочего дерева сборки артефактов (`$RUNNER_TEMP`).
+- В `build.gradle.kts` подпись читается из переменных окружения или `keystore.properties`
+  (последний в `.gitignore`). Нет данных подписи — release не падает с ошибкой в форках, собирается debug.
+- `permissions:` в workflow минимальные. `contents: write` — только в job релиза по тегу.
+- Используй версии actions, закреплённые по мажорной версии (`actions/checkout@v4`), не `@main`.
+- Не добавляй шаги, отправляющие артефакты или код на сторонние сервисы.
+- Gradle wrapper (`gradlew`, `gradle/wrapper/*`) закоммичен; `gradlew` исполняемый (`git update-index --chmod=+x`).
+
+```yaml
+# ❌ BAD
+- run: echo "${{ secrets.KEYSTORE_PASSWORD }}"
+
+# ✅ GOOD
+- run: echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+  env:
+    KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+```
+
+- Проверь, что `AndroidManifest.xml` не содержит лишних разрешений сверх перечисленных в `SPEC.md` 3.3,
+  `INTERNET`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC`.
+- `android:allowBackup="false"` (в бэкапе не должен оказаться пароль), `usesCleartextTraffic` — только по
+  network security config, если пользователь включил HTTP; иначе `false`.

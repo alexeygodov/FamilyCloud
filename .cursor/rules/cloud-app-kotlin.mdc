@@ -1,0 +1,34 @@
+---
+description: Стиль и архитектура Kotlin/Compose для FamilyCloud Android
+globs: **/*.kt,**/*.kts
+alwaysApply: false
+---
+
+# Kotlin / Compose
+
+Требования проекта — в `SPEC.md`, правила работы — в `AGENTS.md`.
+
+- Слои: `ui` (Compose + ViewModel) → `data` (репозитории, WebDAV, Room). UI не знает про OkHttp и Room.
+- ViewModel отдаёт один `StateFlow<UiState>` (sealed/data class). События — отдельный `Channel`/`SharedFlow`.
+- Composable не содержат бизнес-логики и не ходят в сеть. Состояние поднимай вверх (state hoisting).
+- Корутины: `viewModelScope` в UI, `Dispatchers.IO` только внутри data-слоя (инжектируй dispatcher).
+  Не используй `GlobalScope` и `runBlocking` вне тестов.
+- Ошибки: типизированный `sealed interface WebDavError`/`Result`, а не голые исключения в UI.
+  Никогда не глотай исключения молча; `CancellationException` пробрасывай.
+- Все строки UI — в `strings.xml` (русский). Никаких хардкод-строк в Composable.
+- Размеры файлов и смещения — `Long`. Время — `Instant`/`Long` epoch millis.
+- Нет `!!` в production-коде. Нет `Thread.sleep`. Нет `Log.*` с URL, логином или паролем.
+
+```kotlin
+// ❌ BAD
+val bytes = file.readBytes()          // файл целиком в память
+client.put(url, bytes)
+
+// ✅ GOOD
+contentResolver.openInputStream(uri).use { input ->
+    client.put(url, StreamingBody(input, size, onProgress))
+}
+```
+
+- Версии зависимостей — только через `gradle/libs.versions.toml`.
+- Новый публичный класс data-слоя — с юнит-тестом.
