@@ -9,7 +9,9 @@ Android-клиент WebDAV (роутер Keenetic KN-1010, KeeneticOS 5.0): ф�
 ## Статус
 
 Реализован клиент по SPEC.md: подключение, файловый менеджер, просмотр фото и видео, синхронизация альбомов. Репозиторий: https://github.com/alexeygodov/FamilyCloud
-Локально проходят юнит-тесты, `assembleDebug` и подписанный `assembleRelease` (v2 и v3). Телефон и роутер Keenetic не проверялись — список в `docs/SERVER_NOTES.md`. Ссылка на CI появится после зелёной сборки этого коммита.
+CI зелёный: https://github.com/alexeygodov/FamilyCloud/actions/runs/42799437472
+На релизе есть debug и подписанный release APK: https://github.com/alexeygodov/FamilyCloud/releases/tag/latest
+Локально проверены юнит-тесты и подпись release (v2 и v3). Телефон и роутер Keenetic не проверялись — список в `docs/SERVER_NOTES.md`.
 
 ## Область работ
 
