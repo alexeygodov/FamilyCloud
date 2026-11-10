@@ -8,9 +8,9 @@ Android-клиент WebDAV (роутер Keenetic KN-1010, KeeneticOS 5.0): ф�
 
 ## Статус
 
-M0: каркас собран локально (`testDebugUnitTest`, `assembleDebug`, `assembleRelease` без подписи).
-Репозиторий GitHub не создан, Actions ещё не запускались. Ничего не пушить без согласия пользователя.
-Не начинай M1, пока CI не зелёный и debug-APK не лежит в артефактах.
+M0 закрыт. Репозиторий: https://github.com/alexeygodov/FamilyCloud
+CI зелёный, debug-APK в артефактах: https://github.com/alexeygodov/FamilyCloud/actions/runs/42786122402
+Следующий этап — M1, только после явной просьбы пользователя. Секреты подписи ещё не заданы, release-APK не собирался.
 
 ## Область работ
 
