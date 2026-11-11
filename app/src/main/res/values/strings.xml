@@ -54,7 +54,14 @@
     <string name="sync_progress">Выгружено %1$d из %2$d</string>
     <string name="sync_working">Выгрузка</string>
     <string name="permissions">Разрешения</string>
-    <string name="error_unauthorized">Неверный логин или пароль</string>
+    <string name="error_unauthorized">Неверный логин или пароль. Логин чувствителен к регистру (cloud и Cloud — разные). Несколько неудачных попыток подряд роутер может заблокировать адрес.</string>
+    <string name="error_unauthorized_basic">Неверный логин или пароль (Basic). Логин чувствителен к регистру (cloud и Cloud — разные). Несколько неудачных попыток подряд роутер может заблокировать адрес.</string>
+    <string name="error_unauthorized_digest">Неверный логин или пароль (Digest). Логин чувствителен к регистру (cloud и Cloud — разные). Несколько неудачных попыток подряд роутер может заблокировать адрес.</string>
+    <string name="error_unauthorized_scheme">Сервер требует способ входа, который приложение не умеет: %1$s. Поддерживаются Basic и Digest.</string>
+    <string name="error_unauthorized_unsupported">Сервер требует способ входа, который приложение не умеет. Поддерживаются Basic и Digest.</string>
+    <string name="connection_auth_scheme">Способ входа: %1$s (определён автоматически)</string>
+    <string name="connection_password_space">В начале или в конце пароля есть пробел. Он отправится как часть пароля.</string>
+    <string name="connection_attempt_url">Проверяется адрес: %1$s</string>
     <string name="error_forbidden">Доступ запрещён</string>
     <string name="error_not_found">Не найдено</string>
     <string name="error_method">Операция не поддерживается сервером</string>

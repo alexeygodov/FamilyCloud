@@ -41,7 +41,7 @@ class WebDavClientTest {
     @Test
     fun mapsErrorStatuses() = runBlocking {
         listOf(
-            401 to WebDavError.Unauthorized,
+            401 to WebDavError.Unauthorized(null),
             404 to WebDavError.NotFound,
             405 to WebDavError.MethodNotAllowed,
             409 to WebDavError.Conflict,
@@ -105,6 +105,19 @@ class WebDavClientTest {
         val blocked = client.authenticated("u", "p", allowHttp = false)
             .propfind(server.url("/webdav/").toString(), 0)
         assertEquals(WebDavError.HttpDisabled, (blocked as WebDavResult.Err).error)
+    }
+
+    @Test
+    fun unauthorizedKeepsTheServerScheme() = runBlocking {
+        server.enqueue(
+            MockResponse.Builder()
+                .code(401)
+                .addHeader("WWW-Authenticate", "Digest realm=\"Keenetic\", qop=\"auth\", nonce=\"abc\"")
+                .body("")
+                .build(),
+        )
+        val result = client.propfind(server.url("/webdav/").toString(), 0)
+        assertEquals(WebDavError.Unauthorized("Digest"), (result as WebDavResult.Err).error)
     }
 
     @Test

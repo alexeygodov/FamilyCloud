@@ -60,6 +60,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -95,6 +96,7 @@ fun ConnectionScreen(viewModel: ConnectionViewModel, onConnected: () -> Unit) {
     val saved by viewModel.saved.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsState()
     val error by viewModel.error.collectAsState()
+    val attemptedUrl by viewModel.attemptedUrl.collectAsState()
     val initial = remember { saved }
     var url by rememberSaveable { mutableStateOf(initial?.baseUrl ?: "https://") }
     var login by rememberSaveable { mutableStateOf(initial?.login ?: "") }
@@ -117,7 +119,11 @@ fun ConnectionScreen(viewModel: ConnectionViewModel, onConnected: () -> Unit) {
                 label = { Text(stringResource(R.string.connection_url)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.None,
+                    keyboardType = KeyboardType.Uri,
+                    autoCorrectEnabled = false,
+                ),
             )
             OutlinedTextField(
                 value = login,
@@ -125,7 +131,11 @@ fun ConnectionScreen(viewModel: ConnectionViewModel, onConnected: () -> Unit) {
                 label = { Text(stringResource(R.string.connection_login)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.None,
+                    keyboardType = KeyboardType.Ascii,
+                    autoCorrectEnabled = false,
+                ),
             )
             OutlinedTextField(
                 value = password,
@@ -134,7 +144,11 @@ fun ConnectionScreen(viewModel: ConnectionViewModel, onConnected: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.None,
+                    keyboardType = KeyboardType.Password,
+                    autoCorrectEnabled = false,
+                ),
                 trailingIcon = {
                     TextButton(onClick = { showPassword = !showPassword }) {
                         Text(stringResource(if (showPassword) R.string.hide_password else R.string.show_password))
@@ -146,6 +160,15 @@ fun ConnectionScreen(viewModel: ConnectionViewModel, onConnected: () -> Unit) {
                 Text(stringResource(R.string.connection_http))
             }
             Text(stringResource(R.string.connection_http_hint), style = MaterialTheme.typography.bodySmall)
+            if (password.startsWith(' ') || password.endsWith(' ')) {
+                Text(stringResource(R.string.connection_password_space), color = MaterialTheme.colorScheme.error)
+            }
+            saved?.let {
+                Text(stringResource(R.string.connection_auth_scheme, it.authScheme.name), style = MaterialTheme.typography.bodySmall)
+            }
+            if (attemptedUrl != null) {
+                Text(stringResource(R.string.connection_attempt_url, attemptedUrl.orEmpty()))
+            }
             if (error != null) {
                 Text(error.orEmpty(), color = MaterialTheme.colorScheme.error)
             }
@@ -673,6 +696,9 @@ private fun failureLabel(code: String): String {
         "SSL" -> stringResource(R.string.error_ssl)
         "HTTP_DISABLED" -> stringResource(R.string.error_http_off)
         "UNAUTHORIZED" -> stringResource(R.string.error_unauthorized)
+        "UNAUTHORIZED_BASIC" -> stringResource(R.string.error_unauthorized_basic)
+        "UNAUTHORIZED_DIGEST" -> stringResource(R.string.error_unauthorized_digest)
+        "UNAUTHORIZED_SCHEME" -> stringResource(R.string.error_unauthorized_unsupported)
         "FORBIDDEN" -> stringResource(R.string.error_forbidden)
         "NOT_FOUND" -> stringResource(R.string.error_not_found)
         "METHOD" -> stringResource(R.string.error_method)

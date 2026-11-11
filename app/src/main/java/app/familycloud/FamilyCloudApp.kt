@@ -6,7 +6,6 @@ import android.util.Log
 import androidx.room.Room
 import androidx.work.Configuration
 import app.familycloud.data.db.AppDatabase
-import app.familycloud.data.settings.SavedConnection
 import app.familycloud.data.settings.SettingsRepository
 import app.familycloud.data.webdav.LocalFiles
 import app.familycloud.data.webdav.UrlBuilder
@@ -24,18 +23,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import okhttp3.Authenticator
-import okhttp3.Credentials
 import okhttp3.Dispatcher
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.Route
 import okio.Path.Companion.toOkioPath
-import app.familycloud.data.webdav.HttpDisabledException
-import java.nio.charset.StandardCharsets
+import app.familycloud.data.webdav.SchemeAuth
 import java.util.concurrent.TimeUnit
 
 class FamilyCloudApp : Application(), Configuration.Provider, SingletonImageLoader.Factory {
@@ -66,6 +59,8 @@ class AppContainer(private val app: Application) {
     val urls = UrlBuilder()
     private val debug = app.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
+    private val auth = SchemeAuth { settings.snapshot() }
+
     val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.MINUTES)
@@ -74,13 +69,18 @@ class AppContainer(private val app: Application) {
         .retryOnConnectionFailure(false)
         // Keenetic на HTTP/2 отвечает 401 на PROPFIND, хотя тот же пароль по HTTP/1.1 принимается.
         .protocols(listOf(Protocol.HTTP_1_1))
-        .authenticator(BasicAuthenticator(settings))
-        .addInterceptor(AuthInterceptor(settings))
+        .authenticator(auth)
+        .addInterceptor(auth)
         .apply {
             if (debug) {
                 addInterceptor(Interceptor { chain ->
                     val response = chain.proceed(chain.request())
-                    Log.i("FamilyCloud", "${chain.request().method} ${response.code}")
+                    Log.i(
+                        "FamilyCloud",
+                        "${chain.request().method} ${chain.request().url.newBuilder().username("").password("").build()} " +
+                            "${response.protocol} ${response.code} " +
+                            "www=${response.header("WWW-Authenticate")} server=${response.header("Server")}",
+                    )
                     response
                 })
             }
@@ -114,46 +114,4 @@ class AppContainer(private val app: Application) {
     val localFiles = LocalFiles(app, webdav)
     val scanner = MediaScanner(app)
     val sync = SyncRepository(app, database, scanner, webdav, settings, urls)
-}
-
-private class AuthInterceptor(
-    private val settings: SettingsRepository,
-) : Interceptor {
-    override fun intercept(chain: Interceptor.Chain): okhttp3.Response {
-        val request = chain.request()
-        val saved: SavedConnection? = settings.snapshot()
-        if (request.url.scheme == "http" && saved?.allowHttp != true) {
-            throw HttpDisabledException()
-        }
-        val authed = if (saved == null) {
-            request
-        } else {
-            request.newBuilder()
-                .header("Authorization", Credentials.basic(saved.login, saved.password, StandardCharsets.UTF_8))
-                .build()
-        }
-        return chain.proceed(authed)
-    }
-}
-
-private class BasicAuthenticator(
-    private val settings: SettingsRepository,
-) : Authenticator {
-    override fun authenticate(route: Route?, response: Response): Request? {
-        if (priorResponses(response) >= 2) return null
-        val saved = settings.snapshot() ?: return null
-        val value = Credentials.basic(saved.login, saved.password, StandardCharsets.UTF_8)
-        if (response.request.header("Authorization") == value) return null
-        return response.request.newBuilder().header("Authorization", value).build()
-    }
-
-    private fun priorResponses(response: Response): Int {
-        var count = 1
-        var prior = response.priorResponse
-        while (prior != null) {
-            count += 1
-            prior = prior.priorResponse
-        }
-        return count
-    }
 }

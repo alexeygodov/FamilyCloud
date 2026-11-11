@@ -1,7 +1,7 @@
 package app.familycloud.data.webdav
 
 sealed interface WebDavError {
-    data object Unauthorized : WebDavError
+    data class Unauthorized(val scheme: String?, val schemes: List<String> = listOfNotNull(scheme)) : WebDavError
     data object Forbidden : WebDavError
     data object NotFound : WebDavError
     data object MethodNotAllowed : WebDavError
@@ -21,7 +21,12 @@ fun WebDavError.code(): String = when (this) {
     WebDavError.Timeout -> "TIMEOUT"
     WebDavError.Ssl -> "SSL"
     WebDavError.HttpDisabled -> "HTTP_DISABLED"
-    WebDavError.Unauthorized -> "UNAUTHORIZED"
+    is WebDavError.Unauthorized -> when (kind()) {
+        UnauthorizedKind.Basic -> "UNAUTHORIZED_BASIC"
+        UnauthorizedKind.Digest -> "UNAUTHORIZED_DIGEST"
+        UnauthorizedKind.Unsupported -> "UNAUTHORIZED_SCHEME"
+        UnauthorizedKind.Generic -> "UNAUTHORIZED"
+    }
     WebDavError.Forbidden -> "FORBIDDEN"
     WebDavError.NotFound -> "NOT_FOUND"
     WebDavError.MethodNotAllowed -> "METHOD"
@@ -30,6 +35,19 @@ fun WebDavError.code(): String = when (this) {
     WebDavError.InsufficientStorage -> "STORAGE"
     WebDavError.InvalidUrl -> "BAD_URL"
     is WebDavError.Http -> "HTTP_$code"
+}
+
+enum class UnauthorizedKind { Basic, Digest, Unsupported, Generic }
+
+/** Что предлагал сервер при отказе: только Basic, только Digest, оба/неизвестно или то, что приложение не умеет. */
+fun WebDavError.Unauthorized.kind(): UnauthorizedKind {
+    val supported = schemes.mapNotNull { AuthScheme.fromChallenge(it) }.toSet()
+    return when {
+        schemes.isNotEmpty() && supported.isEmpty() -> UnauthorizedKind.Unsupported
+        supported == setOf(AuthScheme.Basic) -> UnauthorizedKind.Basic
+        supported == setOf(AuthScheme.Digest) -> UnauthorizedKind.Digest
+        else -> UnauthorizedKind.Generic
+    }
 }
 
 fun WebDavError.retries(): Boolean = when (this) {

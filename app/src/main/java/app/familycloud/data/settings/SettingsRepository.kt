@@ -2,6 +2,7 @@ package app.familycloud.data.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import app.familycloud.data.webdav.AuthScheme
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -17,8 +18,9 @@ data class SavedConnection(
     val login: String,
     val password: String,
     val allowHttp: Boolean,
+    val authScheme: AuthScheme = AuthScheme.Basic,
 ) {
-    override fun toString(): String = "SavedConnection(baseUrl=$baseUrl, login=$login, allowHttp=$allowHttp)"
+    override fun toString(): String = "SavedConnection(baseUrl=$baseUrl, login=$login, allowHttp=$allowHttp, auth=$authScheme)"
 }
 
 private val Context.connectionStore by preferencesDataStore(name = "connection")
@@ -46,7 +48,7 @@ class SettingsRepository(context: Context) {
         state.value = if (url.isNullOrBlank() || login.isNullOrBlank() || password.isNullOrEmpty()) {
             null
         } else {
-            SavedConnection(url, login, password, allowHttp)
+            SavedConnection(url, login, password, allowHttp, AuthScheme.parse(prefs[AUTH_SCHEME]))
         }
     }
 
@@ -68,6 +70,7 @@ class SettingsRepository(context: Context) {
             prefs[URL] = connection.baseUrl
             prefs[LOGIN] = connection.login
             prefs[ALLOW_HTTP] = connection.allowHttp
+            prefs[AUTH_SCHEME] = connection.authScheme.name
         }
         secure.edit().putString(PASSWORD, connection.password).apply()
         state.value = connection
@@ -103,5 +106,6 @@ class SettingsRepository(context: Context) {
         val URL = stringPreferencesKey("url")
         val LOGIN = stringPreferencesKey("login")
         val ALLOW_HTTP = booleanPreferencesKey("allow_http")
+        val AUTH_SCHEME = stringPreferencesKey("auth_scheme")
     }
 }

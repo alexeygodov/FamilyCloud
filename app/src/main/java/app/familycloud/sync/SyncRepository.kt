@@ -14,10 +14,12 @@ import app.familycloud.data.db.PendingUploadEntity
 import app.familycloud.data.db.SyncPairEntity
 import app.familycloud.data.db.UploadedEntity
 import app.familycloud.data.settings.SettingsRepository
+import app.familycloud.data.webdav.UnauthorizedKind
 import app.familycloud.data.webdav.UrlBuilder
 import app.familycloud.data.webdav.WebDavClient
 import app.familycloud.data.webdav.WebDavError
 import app.familycloud.data.webdav.WebDavResult
+import app.familycloud.data.webdav.kind
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -239,7 +241,12 @@ private class WebDavRemote(
 }
 
 fun errorText(context: Context, error: WebDavError): String = when (error) {
-    WebDavError.Unauthorized -> context.getString(R.string.error_unauthorized)
+    is WebDavError.Unauthorized -> when (error.kind()) {
+        UnauthorizedKind.Basic -> context.getString(R.string.error_unauthorized_basic)
+        UnauthorizedKind.Digest -> context.getString(R.string.error_unauthorized_digest)
+        UnauthorizedKind.Unsupported -> context.getString(R.string.error_unauthorized_scheme, error.schemes.joinToString())
+        UnauthorizedKind.Generic -> context.getString(R.string.error_unauthorized)
+    }
     WebDavError.Forbidden -> context.getString(R.string.error_forbidden)
     WebDavError.NotFound -> context.getString(R.string.error_not_found)
     WebDavError.MethodNotAllowed -> context.getString(R.string.error_method)

@@ -19,13 +19,17 @@ class WebDavRepository(
     private val settings: SettingsRepository,
     private val urls: UrlBuilder,
 ) {
+    fun normalizedAddress(baseUrl: String): String? = urls.normalizeBase(baseUrl)
+
     suspend fun test(baseUrl: String, login: String, password: String, allowHttp: Boolean): WebDavResult<Unit> {
         val normalized = urls.normalizeBase(baseUrl) ?: return WebDavResult.Err(WebDavError.InvalidUrl)
         if (!urls.allowsScheme(normalized, allowHttp)) return WebDavResult.Err(WebDavError.InvalidUrl)
-        val next = app.familycloud.data.settings.SavedConnection(normalized, login, password, allowHttp)
-        val listed = client.authenticated(login, password, allowHttp).propfind(normalized, depth = 0)
-        if (listed is WebDavResult.Err) return listed
-        settings.persist(next)
+        val trimmed = login.trim()
+        val scheme = when (val detected = client.detectScheme(normalized, trimmed, password, allowHttp)) {
+            is WebDavResult.Err -> return detected
+            is WebDavResult.Ok -> detected.value
+        }
+        settings.persist(app.familycloud.data.settings.SavedConnection(normalized, trimmed, password, allowHttp, scheme))
         return WebDavResult.Ok(Unit)
     }
 
