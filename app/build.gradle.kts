@@ -89,6 +89,10 @@ kotlin {
     jvmToolchain(17)
 }
 
+base {
+    archivesName.set("FamilyCloudApp")
+}
+
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }

@@ -34,6 +34,13 @@ jobs:
       - name: Unit tests and debug APK
         run: ./gradlew lintDebug testDebugUnitTest assembleDebug
 
+      - name: Name the debug APK
+        run: |
+          target=app/build/outputs/apk/debug/FamilyCloudApp-debug.apk
+          for apk in app/build/outputs/apk/debug/*.apk; do
+            if [ "$apk" != "$target" ]; then mv "$apk" "$target"; fi
+          done
+
       - name: Prepare release signing
         id: signing
         shell: bash
@@ -63,7 +70,12 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
+        run: |
+          ./gradlew assembleRelease
+          target=app/build/outputs/apk/release/FamilyCloudApp.apk
+          for apk in app/build/outputs/apk/release/*.apk; do
+            if [ "$apk" != "$target" ]; then mv "$apk" "$target"; fi
+          done
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
@@ -99,6 +111,13 @@ jobs:
           name: app-release
           path: dist/release
 
+      - name: Remove previous APK names
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete-asset latest app-release.apk --yes || true
+          gh release delete-asset latest app-debug.apk --yes || true
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -111,8 +130,8 @@ jobs:
           fail_on_unmatched_files: true
           body: |
             Сборка GitHub Actions.
-            app-release.apk — подписанный release.
-            app-debug.apk — debug.
+            FamilyCloudApp.apk — подписанный release.
+            FamilyCloudApp-debug.apk — debug.
           files: |
             dist/debug/*.apk
             dist/release/*.apk
