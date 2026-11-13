@@ -73,7 +73,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
+import app.familycloud.ui.theme.Dimens
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.familycloud.R
 import app.familycloud.data.webdav.FileKind
@@ -258,7 +258,7 @@ fun BrowserScreen(
         },
         floatingActionButton = {
             if (!choosing) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.End) {
+                Column(verticalArrangement = Arrangement.spacedBy(Dimens.m), horizontalAlignment = Alignment.End) {
                     if (!picking) {
                         SmallFloatingActionButton(onClick = onUpload) {
                             Icon(Icons.Filled.CloudUpload, stringResource(R.string.upload))
@@ -280,15 +280,15 @@ fun BrowserScreen(
                 Breadcrumbs(path, onOpen)
                 if (transferring) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if (failure != null) {
-                    Column(Modifier.padding(16.dp)) {
+                    Column(Modifier.padding(Dimens.l)) {
                         Text(failure, color = MaterialTheme.colorScheme.error)
                         TextButton(onClick = onRefresh) { Text(stringResource(R.string.retry)) }
                     }
                 }
                 if (entries.isEmpty() && !loading && failure == null) {
-                    Text(stringResource(R.string.empty_folder), modifier = Modifier.padding(24.dp))
+                    Text(stringResource(R.string.empty_folder), modifier = Modifier.padding(Dimens.xl))
                 }
-                LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 88.dp)) {
+                LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = Dimens.fabClearance)) {
                     items(entries, key = { it.relativePath }) { entry ->
                         EntryRow(
                             entry = entry,
@@ -598,7 +598,7 @@ private fun EntryRow(
 internal fun Breadcrumbs(path: String, onOpen: (String) -> Unit) {
     val parts = path.trim('/').split('/').filter { it.isNotEmpty() }
     Row(
-        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
+        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = Dimens.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TextButton(onClick = { onOpen("") }) { Text(stringResource(R.string.files_root)) }
@@ -628,7 +628,7 @@ private fun EntryGlyph(entry: RemoteEntry, preview: String?) {
             model = ImageRequest.Builder(context).data(preview).size(256, 256).build(),
             contentDescription = description,
             contentScale = ContentScale.Crop,
-            modifier = Modifier.size(40.dp),
+            modifier = Modifier.size(Dimens.listIcon),
             loading = { PlainGlyph(entry, description) },
             error = { PlainGlyph(entry, description) },
         )

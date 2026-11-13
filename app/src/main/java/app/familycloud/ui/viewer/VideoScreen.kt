@@ -14,7 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
+import app.familycloud.ui.theme.Dimens
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -55,7 +55,7 @@ fun VideoScreen(
         },
     ) { padding ->
         if (player == null) {
-            Text(stringResource(R.string.error_bad_path), modifier = Modifier.padding(padding).padding(24.dp))
+            Text(stringResource(R.string.error_bad_path), modifier = Modifier.padding(padding).padding(Dimens.xl))
         } else {
             val lifecycleOwner = LocalLifecycleOwner.current
             DisposableEffect(lifecycleOwner, player) {

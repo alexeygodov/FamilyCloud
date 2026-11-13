@@ -38,7 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
+import app.familycloud.ui.theme.Dimens
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.familycloud.R
@@ -168,8 +168,8 @@ fun SyncScreen(
     ) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(Dimens.l),
+            verticalArrangement = Arrangement.spacedBy(Dimens.m),
         ) {
             if (partial) {
                 item { Text(stringResource(R.string.sync_partial), color = MaterialTheme.colorScheme.error) }

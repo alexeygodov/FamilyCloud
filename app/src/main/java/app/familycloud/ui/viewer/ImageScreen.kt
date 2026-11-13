@@ -28,7 +28,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
+import app.familycloud.ui.theme.Dimens
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.familycloud.R
 import coil3.compose.AsyncImage
@@ -81,7 +81,7 @@ fun ImageScreen(
         },
     ) { padding ->
         if (current.isEmpty()) {
-            Text(stringResource(R.string.error_bad_path), modifier = Modifier.padding(padding).padding(24.dp))
+            Text(stringResource(R.string.error_bad_path), modifier = Modifier.padding(padding).padding(Dimens.xl))
         } else {
             HorizontalPager(
                 state = pagerState,
@@ -91,7 +91,7 @@ fun ImageScreen(
                 val item = images.getOrNull(page) ?: return@HorizontalPager
                 val url = urlOf(item)
                 if (url == null) {
-                    Text(stringResource(R.string.error_bad_path), modifier = Modifier.padding(24.dp))
+                    Text(stringResource(R.string.error_bad_path), modifier = Modifier.padding(Dimens.xl))
                 } else {
                     ZoomableImage(url, fileName(item)) { zoomedNow ->
                         if (page == pagerState.currentPage) zoomed = zoomedNow

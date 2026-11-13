@@ -35,7 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
+import app.familycloud.ui.theme.Dimens
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.familycloud.R
 import app.familycloud.data.webdav.RemoteEntry
@@ -122,8 +122,8 @@ fun FolderPickerScreen(
         },
         bottomBar = {
             Row(
-                Modifier.fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                Modifier.fillMaxWidth().padding(Dimens.l),
+                horizontalArrangement = Arrangement.spacedBy(Dimens.m),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedButton(onClick = { newFolder = true }, modifier = Modifier.weight(1f)) {
@@ -138,9 +138,9 @@ fun FolderPickerScreen(
         Column(Modifier.fillMaxSize().padding(padding)) {
             Breadcrumbs(path, onOpen)
             if (loading && folders.isEmpty()) {
-                Text(stringResource(R.string.loading), modifier = Modifier.padding(24.dp))
+                Text(stringResource(R.string.loading), modifier = Modifier.padding(Dimens.xl))
             }
-            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 8.dp)) {
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = Dimens.s)) {
                 items(folders, key = { it.relativePath }) { entry ->
                     ListItem(
                         headlineContent = { Text(entry.label, maxLines = 1) },

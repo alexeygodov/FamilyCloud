@@ -34,7 +34,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.unit.dp
+import app.familycloud.ui.theme.Dimens
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.familycloud.R
 import app.familycloud.data.settings.SavedConnection
@@ -93,8 +93,8 @@ fun ConnectionScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(Dimens.xl),
+            verticalArrangement = Arrangement.spacedBy(Dimens.m),
         ) {
             if (!showBack) {
                 Text(stringResource(R.string.connection_title), style = MaterialTheme.typography.headlineSmall)
