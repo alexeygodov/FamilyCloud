@@ -87,11 +87,8 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
             }
             BrowserRoute(
                 viewModel = model,
-                picking = false,
-                onBack = null,
                 onConnection = { nav.navigate("connection?standalone=false") },
                 onSync = { nav.navigate("sync") },
-                onConfirmFolder = {},
                 onChooseDestination = {
                     val mode = if (model.pendingCopy) "copy" else "move"
                     val from = encodeNav(model.path.value)

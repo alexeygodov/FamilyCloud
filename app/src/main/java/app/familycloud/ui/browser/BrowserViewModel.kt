@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
+data class ActiveDownload(val index: Int, val total: Int, val name: String)
+
 class BrowserViewModel(
     app: Application,
     private val container: AppContainer,
@@ -34,11 +36,14 @@ class BrowserViewModel(
     val loading = MutableStateFlow(false)
     val transferring = MutableStateFlow(false)
     val message = MutableStateFlow<String?>(null)
+    val messageCanRetry = MutableStateFlow(false)
     val failure = MutableStateFlow<String?>(null)
+    val download = MutableStateFlow<ActiveDownload?>(null)
     val sort = MutableStateFlow(savedSort())
     var pendingEntries: List<RemoteEntry> = emptyList()
     var pendingCopy: Boolean = false
     private var listJob: Job? = null
+    private var downloadJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -61,19 +66,29 @@ class BrowserViewModel(
         if (clear) entries.value = emptyList()
         listJob = viewModelScope.launch {
             loading.value = true
-            failure.value = null
             when (val result = container.repository.list(requested)) {
                 is WebDavResult.Ok -> if (path.value == requested) {
                     entries.value = sortEntries(result.value, sort.value)
+                    failure.value = null
                 }
                 is WebDavResult.Err -> if (path.value == requested) {
                     val text = errorText(getApplication(), result.error)
-                    message.value = text
-                    failure.value = text
+                    if (entries.value.isEmpty()) {
+                        failure.value = text
+                    } else {
+                        failure.value = null
+                        post(text, retry = true)
+                    }
                 }
             }
             if (path.value == requested) loading.value = false
         }
+    }
+
+    fun isNameValid(name: String): Boolean = container.urls.isSafeName(name)
+
+    fun reportUploaded(count: Int) {
+        post(getApplication<Application>().getString(R.string.uploaded_count, count))
     }
 
     fun consumeMessage() {
@@ -99,27 +114,33 @@ class BrowserViewModel(
 
     fun createFolder(name: String) {
         if (!container.urls.isSafeName(name)) {
-            message.value = getApplication<Application>().getString(R.string.error_bad_name)
+            post(getApplication<Application>().getString(R.string.error_bad_name))
             return
         }
         viewModelScope.launch {
             when (val result = container.repository.createFolder(path.value, name.trim())) {
-                is WebDavResult.Err -> message.value = errorText(getApplication(), result.error)
-                is WebDavResult.Ok -> refresh()
+                is WebDavResult.Err -> post(errorText(getApplication(), result.error))
+                is WebDavResult.Ok -> {
+                    post(getApplication<Application>().getString(R.string.folder_created))
+                    refresh()
+                }
             }
         }
     }
 
     fun rename(entry: RemoteEntry, name: String) {
         if (!container.urls.isSafeName(name)) {
-            message.value = getApplication<Application>().getString(R.string.error_bad_name)
+            post(getApplication<Application>().getString(R.string.error_bad_name))
             return
         }
         val target = destination(path.value, name.trim(), entry.isFolder)
         viewModelScope.launch {
             when (val result = container.repository.move(entry.relativePath, target)) {
-                is WebDavResult.Err -> message.value = errorText(getApplication(), result.error)
-                is WebDavResult.Ok -> refresh()
+                is WebDavResult.Err -> post(errorText(getApplication(), result.error))
+                is WebDavResult.Ok -> {
+                    post(getApplication<Application>().getString(R.string.renamed))
+                    refresh()
+                }
             }
         }
     }
@@ -134,13 +155,14 @@ class BrowserViewModel(
             for (entry in chosen) {
                 when (val result = container.repository.delete(entry.relativePath)) {
                     is WebDavResult.Err -> {
-                        message.value = errorText(getApplication(), result.error)
+                        post(errorText(getApplication(), result.error))
                         refresh()
                         return@launch
                     }
                     is WebDavResult.Ok -> Unit
                 }
             }
+            post(getApplication<Application>().getString(R.string.deleted_count, chosen.size))
             refresh()
         }
     }
@@ -148,24 +170,33 @@ class BrowserViewModel(
     fun downloadAll(chosen: List<RemoteEntry>) {
         val files = chosen.filter { !it.isFolder }
         if (files.isEmpty()) return
-        viewModelScope.launch {
+        downloadJob?.cancel()
+        downloadJob = viewModelScope.launch {
             transferring.value = true
             try {
-                for (entry in files) {
-                    val url = container.repository.fileUrl(entry.relativePath) ?: continue
+                files.forEachIndexed { index, entry ->
+                    download.value = ActiveDownload(index + 1, files.size, entry.name)
+                    val url = container.repository.fileUrl(entry.relativePath) ?: return@forEachIndexed
                     when (val result = container.localFiles.saveToDownloads(url, entry.name)) {
                         is WebDavResult.Err -> {
-                            message.value = errorText(getApplication(), result.error)
+                            post(errorText(getApplication(), result.error))
                             return@launch
                         }
                         is WebDavResult.Ok -> Unit
                     }
                 }
-                message.value = getApplication<Application>().getString(R.string.downloaded)
+                post(getApplication<Application>().getString(R.string.downloaded))
             } finally {
+                download.value = null
                 transferring.value = false
             }
         }
+    }
+
+    fun cancelDownload() {
+        downloadJob?.cancel()
+        download.value = null
+        transferring.value = false
     }
 
     fun upload(uris: List<Uri>) {
@@ -176,7 +207,7 @@ class BrowserViewModel(
                 val name = displayName(uri)
                 val size = sizeOf(uri)
                 if (name == null || size < 0L) {
-                    message.value = getApplication<Application>().getString(R.string.error_unknown_size)
+                    post(getApplication<Application>().getString(R.string.error_unknown_size))
                     return@forEach
                 }
                 try {
@@ -215,11 +246,13 @@ class BrowserViewModel(
                     container.repository.move(entry.relativePath, target)
                 }
                 if (result is WebDavResult.Err) {
-                    message.value = errorText(getApplication(), result.error)
+                    post(errorText(getApplication(), result.error))
                     refresh()
                     return@launch
                 }
             }
+            val doneText = if (copy) R.string.copied_count else R.string.moved_count
+            post(getApplication<Application>().getString(doneText, chosen.size))
             refresh()
         }
     }
@@ -227,7 +260,7 @@ class BrowserViewModel(
     fun openExternally(entry: RemoteEntry, start: (Uri, String) -> Boolean) {
         openCached(entry) { uri, mime ->
             if (!start(uri, mime)) {
-                message.value = getApplication<Application>().getString(R.string.error_open_external)
+                post(getApplication<Application>().getString(R.string.error_open_external))
             }
         }
     }
@@ -236,7 +269,7 @@ class BrowserViewModel(
         val url = container.repository.fileUrl(entry.relativePath) ?: return
         viewModelScope.launch {
             when (val result = container.localFiles.cacheForView(url, entry.name)) {
-                is WebDavResult.Err -> message.value = errorText(getApplication(), result.error)
+                is WebDavResult.Err -> post(errorText(getApplication(), result.error))
                 is WebDavResult.Ok -> onReady(result.value, container.localFiles.mimeOf(entry.name))
             }
         }
@@ -275,6 +308,11 @@ class BrowserViewModel(
     private fun savedSort(): SortOrder {
         val field = SortField.entries.firstOrNull { it.name == savedState.get<String>(SORT_FIELD) } ?: SortField.Name
         return SortOrder(field, savedState.get<Boolean>(SORT_ASC) ?: true)
+    }
+
+    private fun post(text: String, retry: Boolean = false) {
+        messageCanRetry.value = retry
+        message.value = text
     }
 
     private companion object {

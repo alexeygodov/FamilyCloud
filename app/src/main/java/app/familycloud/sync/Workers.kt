@@ -107,14 +107,21 @@ class UploadWorker(
     override suspend fun doWork(): Result {
         val app = applicationContext as FamilyCloudApp
         app.container.settings.load()
+        var last = TransferProgress(0, 0)
         val failure = forwardProgress(
             show = { update ->
+                last = update
                 val text = applicationContext.getString(R.string.sync_progress, update.done, update.total)
                 tryForeground(foreground(text, update))
             },
             work = { report -> app.container.sync.runUploads(report) },
         )
-        return if (failure?.retryable == true) Result.retry() else Result.success()
+        val output = workDataOf(
+            TransferKeys.DONE to last.done,
+            TransferKeys.TOTAL to last.total,
+            TransferKeys.FAILURE to (failure?.code ?: ""),
+        )
+        return if (failure?.retryable == true) Result.retry() else Result.success(output)
     }
 
     private fun foreground(text: String, progress: TransferProgress? = null): ForegroundInfo {

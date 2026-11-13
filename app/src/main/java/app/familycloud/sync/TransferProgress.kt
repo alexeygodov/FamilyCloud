@@ -14,6 +14,7 @@ object TransferKeys {
     const val SENT = "sent"
     const val SIZE = "size"
     const val NAME = "name"
+    const val FAILURE = "failure"
 }
 
 /**
