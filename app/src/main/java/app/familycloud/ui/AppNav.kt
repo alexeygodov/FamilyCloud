@@ -22,6 +22,8 @@ import app.familycloud.FamilyCloudApp
 import app.familycloud.R
 import app.familycloud.ui.browser.BrowserRoute
 import app.familycloud.ui.browser.BrowserViewModel
+import app.familycloud.ui.browser.FolderPickerRoute
+import app.familycloud.ui.browser.parsePickMode
 import app.familycloud.ui.settings.ConnectionRoute
 import app.familycloud.ui.settings.ConnectionViewModel
 import app.familycloud.ui.sync.SyncRoute
@@ -41,11 +43,29 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
                 nav.navigate(destination) { popUpTo("boot") { inclusive = true } }
             }
         }
-        composable("connection") {
+        composable(
+            route = "connection?standalone={standalone}",
+            arguments = listOf(
+                navArgument("standalone") { type = NavType.BoolType; defaultValue = false },
+            ),
+        ) { entry ->
             val model: ConnectionViewModel = viewModel(factory = factory)
-            ConnectionRoute(model) {
-                nav.navigate("browser") { popUpTo("connection") { inclusive = true } }
-            }
+            val standalone = entry.arguments?.getBoolean("standalone") == true
+            ConnectionRoute(
+                viewModel = model,
+                showBack = !standalone,
+                onBack = { nav.popBackStack() },
+                onConnected = {
+                    if (standalone) {
+                        nav.navigate("browser") {
+                            popUpTo(entry.destination.id) { inclusive = true }
+                        }
+                    } else {
+                        nav.previousBackStackEntry?.savedStateHandle?.set("refreshAfterConnect", true)
+                        nav.popBackStack()
+                    }
+                },
+            )
         }
         composable("browser") { entry ->
             val model: BrowserViewModel = viewModel(factory = factory)
@@ -57,14 +77,29 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
                     }
                 }
             }
+            LaunchedEffect(entry) {
+                entry.savedStateHandle.getStateFlow("refreshAfterConnect", false).collect { refresh ->
+                    if (refresh) {
+                        entry.savedStateHandle["refreshAfterConnect"] = false
+                        model.refresh()
+                    }
+                }
+            }
             BrowserRoute(
                 viewModel = model,
                 picking = false,
                 onBack = null,
-                onConnection = { nav.navigate("connection") },
+                onConnection = { nav.navigate("connection?standalone=false") },
                 onSync = { nav.navigate("sync") },
                 onConfirmFolder = {},
-                onChooseDestination = { nav.navigate("picker") },
+                onChooseDestination = {
+                    val mode = if (model.pendingCopy) "copy" else "move"
+                    val from = encodeNav(model.path.value)
+                    val blocked = encodeNav(
+                        model.pendingEntries.filter { it.isFolder }.joinToString("\n") { it.relativePath },
+                    )
+                    nav.navigate("picker?mode=$mode&from=$from&blocked=$blocked&album=")
+                },
                 onOpenImage = { encoded ->
                     val order = model.sort.value
                     nav.navigate("image/$encoded?field=${order.field.name}&asc=${order.ascending}")
@@ -72,21 +107,31 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
                 onOpenVideo = { encoded -> nav.navigate("video/$encoded") },
             )
         }
-        composable("picker") {
+        composable(
+            route = "picker?mode={mode}&album={album}&from={from}&blocked={blocked}",
+            arguments = listOf(
+                navArgument("mode") { type = NavType.StringType; defaultValue = "move" },
+                navArgument("album") { type = NavType.StringType; defaultValue = "" },
+                navArgument("from") { type = NavType.StringType; defaultValue = "" },
+                navArgument("blocked") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { entry ->
             val model: BrowserViewModel = viewModel(factory = factory)
-            BrowserRoute(
+            val album = decodeNav(entry.arguments?.getString("album").orEmpty())
+            val source = decodeNav(entry.arguments?.getString("from").orEmpty())
+            val blockedRaw = decodeNav(entry.arguments?.getString("blocked").orEmpty())
+            val blocked = if (blockedRaw.isEmpty()) emptyList() else blockedRaw.split('\n')
+            FolderPickerRoute(
                 viewModel = model,
-                picking = true,
-                onBack = { nav.popBackStack() },
-                onConnection = {},
-                onSync = {},
-                onConfirmFolder = { folder ->
+                mode = parsePickMode(entry.arguments?.getString("mode").orEmpty()),
+                albumName = album,
+                source = source,
+                blocked = blocked,
+                onCancel = { nav.popBackStack() },
+                onConfirm = { folder ->
                     nav.previousBackStackEntry?.savedStateHandle?.set("pickedFolder", folder)
                     nav.popBackStack()
                 },
-                onChooseDestination = {},
-                onOpenImage = {},
-                onOpenVideo = {},
             )
         }
         composable("sync") { entry ->
@@ -102,7 +147,10 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
             SyncRoute(
                 viewModel = model,
                 onBack = { nav.popBackStack() },
-                onPickFolder = { nav.navigate("picker") },
+                onPickFolder = {
+                    val album = encodeNav(model.pendingAlbum?.name.orEmpty())
+                    nav.navigate("picker?mode=album&album=$album&from=&blocked=")
+                },
             )
         }
         composable(
@@ -131,7 +179,11 @@ private fun BootScreen(app: FamilyCloudApp, onReady: (String) -> Unit) {
     }
     LaunchedEffect(loaded) {
         if (loaded) {
-            val destination = if (app.container.settings.snapshot() == null) "connection" else "browser"
+            val destination = if (app.container.settings.snapshot() == null) {
+                "connection?standalone=true"
+            } else {
+                "browser"
+            }
             onReady(destination)
         }
     }

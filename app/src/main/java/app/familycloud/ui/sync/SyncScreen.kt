@@ -145,6 +145,7 @@ fun SyncScreen(
     onOpenSettings: () -> Unit,
     onBatterySettings: () -> Unit,
 ) {
+    var removing by remember { mutableStateOf<SyncPairEntity?>(null) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -196,7 +197,7 @@ fun SyncScreen(
                 item { Text(stringResource(R.string.sync_empty)) }
             }
             items(rows, key = { it.pair.id }) { row ->
-                PairBlock(row, onUpdate, onOnlyNew, onDelete)
+                PairBlock(row, onUpdate, onOnlyNew) { removing = row.pair }
             }
         }
     }
@@ -219,6 +220,23 @@ fun SyncScreen(
             dismissButton = { TextButton(onClick = onDismissAlbums) { Text(stringResource(R.string.cancel)) } },
         )
     }
+    val pending = removing
+    if (pending != null) {
+        AlertDialog(
+            onDismissRequest = { removing = null },
+            title = { Text(stringResource(R.string.sync_remove_title, pending.albumName)) },
+            text = { Text(stringResource(R.string.sync_remove_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDelete(pending.id)
+                    removing = null
+                }) { Text(stringResource(R.string.sync_remove)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { removing = null }) { Text(stringResource(R.string.cancel)) }
+            },
+        )
+    }
 }
 
 @Composable
@@ -226,7 +244,7 @@ private fun PairBlock(
     row: PairRow,
     onUpdate: (SyncPairEntity) -> Unit,
     onOnlyNew: (SyncPairEntity, Boolean) -> Unit,
-    onDelete: (Long) -> Unit,
+    onRemove: () -> Unit,
 ) {
     val pair = row.pair
     Column(Modifier.fillMaxWidth()) {
@@ -245,7 +263,7 @@ private fun PairBlock(
         ToggleRow(stringResource(R.string.sync_wifi), pair.wifiOnly) { onUpdate(pair.copy(wifiOnly = it)) }
         ToggleRow(stringResource(R.string.sync_charging), pair.chargingOnly) { onUpdate(pair.copy(chargingOnly = it)) }
         ToggleRow(stringResource(R.string.sync_only_new), pair.onlyNewSinceEpochMs != null) { onOnlyNew(pair, it) }
-        TextButton(onClick = { onDelete(pair.id) }) { Text(stringResource(R.string.sync_remove)) }
+        TextButton(onClick = onRemove) { Text(stringResource(R.string.sync_remove)) }
     }
 }
 

@@ -8,13 +8,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +43,8 @@ import app.familycloud.ui.AppUpdateButton
 @Composable
 fun ConnectionRoute(
     viewModel: ConnectionViewModel,
+    showBack: Boolean,
+    onBack: () -> Unit,
     onConnected: () -> Unit,
 ) {
     val saved by viewModel.saved.collectAsStateWithLifecycle()
@@ -48,6 +56,8 @@ fun ConnectionRoute(
         busy = busy,
         error = error,
         attemptedUrl = attemptedUrl,
+        showBack = showBack,
+        onBack = onBack,
         onSubmit = { url, login, password, allowHttp ->
             viewModel.submit(url, login, password, allowHttp, onConnected)
         },
@@ -60,6 +70,8 @@ fun ConnectionScreen(
     busy: Boolean,
     error: String?,
     attemptedUrl: String?,
+    showBack: Boolean,
+    onBack: () -> Unit,
     onSubmit: (url: String, login: String, password: String, allowHttp: Boolean) -> Unit,
 ) {
     val initial = remember { saved }
@@ -69,7 +81,13 @@ fun ConnectionScreen(
     var allowHttp by rememberSaveable { mutableStateOf(initial?.allowHttp ?: false) }
     var showPassword by rememberSaveable { mutableStateOf(false) }
 
-    Scaffold { padding ->
+    Scaffold(
+        topBar = {
+            if (showBack) {
+                ConnectionTopBar(onBack)
+            }
+        },
+    ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -78,7 +96,9 @@ fun ConnectionScreen(
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(R.string.connection_title), style = MaterialTheme.typography.headlineSmall)
+            if (!showBack) {
+                Text(stringResource(R.string.connection_title), style = MaterialTheme.typography.headlineSmall)
+            }
             AppUpdateButton()
             OutlinedTextField(
                 value = url,
@@ -149,6 +169,19 @@ fun ConnectionScreen(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ConnectionTopBar(onBack: () -> Unit) {
+    TopAppBar(
+        title = { Text(stringResource(R.string.connection_title)) },
+        navigationIcon = {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
+            }
+        },
+    )
 }
 
 @Composable

@@ -126,4 +126,12 @@
     <string name="update_install">Установить</string>
     <string name="update_cancel">Отмена</string>
     <string name="update_close">Закрыть</string>
+    <string name="sync_remove_title">Перестать синхронизировать «%1$s»?</string>
+    <string name="sync_remove_body">Файлы на сервере останутся.</string>
+    <string name="pick_move_title">Куда переместить</string>
+    <string name="pick_copy_title">Куда копировать</string>
+    <string name="pick_album_title">Папка для альбома «%1$s»</string>
+    <string name="pick_move_here">Переместить сюда</string>
+    <string name="pick_copy_here">Копировать сюда</string>
+    <string name="pick_album_here">Выбрать эту папку</string>
 </resources>

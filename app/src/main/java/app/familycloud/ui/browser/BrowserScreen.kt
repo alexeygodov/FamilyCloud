@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.combinedClickable
@@ -199,6 +200,9 @@ fun BrowserScreen(
         selected = selected.filter { it in live }
     }
     val choosing = selected.isNotEmpty() && !picking
+    BackHandler(enabled = choosing || path.isNotEmpty()) {
+        if (choosing) selected = emptyList() else onUp()
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -591,7 +595,7 @@ private fun EntryRow(
 }
 
 @Composable
-private fun Breadcrumbs(path: String, onOpen: (String) -> Unit) {
+internal fun Breadcrumbs(path: String, onOpen: (String) -> Unit) {
     val parts = path.trim('/').split('/').filter { it.isNotEmpty() }
     Row(
         modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
