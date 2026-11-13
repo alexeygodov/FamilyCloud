@@ -24,9 +24,12 @@ import app.familycloud.data.db.SyncPairEntity
 import app.familycloud.data.settings.SettingsRepository
 import app.familycloud.data.webdav.FileKind
 import app.familycloud.data.webdav.RemoteEntry
+import app.familycloud.data.webdav.SortField
+import app.familycloud.data.webdav.SortOrder
 import app.familycloud.data.webdav.WebDavRepository
 import app.familycloud.data.webdav.WebDavResult
 import app.familycloud.data.webdav.kindOf
+import app.familycloud.data.webdav.sortEntries
 import app.familycloud.sync.LocalAlbum
 import app.familycloud.sync.SyncScheduler
 import app.familycloud.sync.errorText
@@ -107,7 +110,8 @@ class BrowserViewModel(
     val transferring = MutableStateFlow(false)
     val message = MutableStateFlow<String?>(null)
     val failure = MutableStateFlow<String?>(null)
-    var pendingEntry: RemoteEntry? = null
+    val sort = MutableStateFlow(savedSort())
+    var pendingEntries: List<RemoteEntry> = emptyList()
     var pendingCopy: Boolean = false
     private var listJob: Job? = null
 
@@ -135,9 +139,7 @@ class BrowserViewModel(
             failure.value = null
             when (val result = container.repository.list(requested)) {
                 is WebDavResult.Ok -> if (path.value == requested) {
-                    entries.value = result.value.sortedWith(
-                        compareBy<RemoteEntry> { !it.isFolder }.thenBy { it.label.lowercase() },
-                    )
+                    entries.value = sortEntries(result.value, sort.value)
                 }
                 is WebDavResult.Err -> if (path.value == requested) {
                     val text = errorText(getApplication(), result.error)
@@ -153,6 +155,23 @@ class BrowserViewModel(
         message.value = null
     }
 
+    fun setSort(order: SortOrder) {
+        sort.value = order
+        savedState[SORT_FIELD] = order.field.name
+        savedState[SORT_ASC] = order.ascending
+        entries.value = sortEntries(entries.value, order)
+    }
+
+    fun previewUrl(entry: RemoteEntry): String? {
+        if (entry.isFolder || kind(entry) != FileKind.Image) return null
+        return container.repository.fileUrl(entry.relativePath)
+    }
+
+    fun stageTransfer(chosen: List<RemoteEntry>, copy: Boolean) {
+        pendingEntries = chosen
+        pendingCopy = copy
+    }
+
     fun createFolder(name: String) {
         if (!container.urls.isSafeName(name)) {
             message.value = getApplication<Application>().getString(R.string.error_bad_name)
@@ -160,15 +179,6 @@ class BrowserViewModel(
         }
         viewModelScope.launch {
             when (val result = container.repository.createFolder(path.value, name.trim())) {
-                is WebDavResult.Err -> message.value = errorText(getApplication(), result.error)
-                is WebDavResult.Ok -> refresh()
-            }
-        }
-    }
-
-    fun delete(entry: RemoteEntry) {
-        viewModelScope.launch {
-            when (val result = container.repository.delete(entry.relativePath)) {
                 is WebDavResult.Err -> message.value = errorText(getApplication(), result.error)
                 is WebDavResult.Ok -> refresh()
             }
@@ -190,14 +200,43 @@ class BrowserViewModel(
     }
 
     fun download(entry: RemoteEntry) {
-        val url = container.repository.fileUrl(entry.relativePath) ?: return
+        downloadAll(listOf(entry))
+    }
+
+    fun deleteAll(chosen: List<RemoteEntry>) {
+        if (chosen.isEmpty()) return
+        viewModelScope.launch {
+            for (entry in chosen) {
+                when (val result = container.repository.delete(entry.relativePath)) {
+                    is WebDavResult.Err -> {
+                        message.value = errorText(getApplication(), result.error)
+                        refresh()
+                        return@launch
+                    }
+                    is WebDavResult.Ok -> Unit
+                }
+            }
+            refresh()
+        }
+    }
+
+    fun downloadAll(chosen: List<RemoteEntry>) {
+        val files = chosen.filter { !it.isFolder }
+        if (files.isEmpty()) return
         viewModelScope.launch {
             transferring.value = true
             try {
-                when (val result = container.localFiles.saveToDownloads(url, entry.name)) {
-                    is WebDavResult.Err -> message.value = errorText(getApplication(), result.error)
-                    is WebDavResult.Ok -> message.value = getApplication<Application>().getString(R.string.downloaded)
+                for (entry in files) {
+                    val url = container.repository.fileUrl(entry.relativePath) ?: continue
+                    when (val result = container.localFiles.saveToDownloads(url, entry.name)) {
+                        is WebDavResult.Err -> {
+                            message.value = errorText(getApplication(), result.error)
+                            return@launch
+                        }
+                        is WebDavResult.Ok -> Unit
+                    }
                 }
+                message.value = getApplication<Application>().getString(R.string.downloaded)
             } finally {
                 transferring.value = false
             }
@@ -238,19 +277,25 @@ class BrowserViewModel(
     }
 
     fun onFolderPicked(folder: String) {
-        val entry = pendingEntry ?: return
-        pendingEntry = null
-        val target = destination(folder, entry.name, entry.isFolder)
+        val chosen = pendingEntries
+        pendingEntries = emptyList()
+        if (chosen.isEmpty()) return
+        val copy = pendingCopy
         viewModelScope.launch {
-            val result = if (pendingCopy) {
-                container.repository.copy(entry.relativePath, target)
-            } else {
-                container.repository.move(entry.relativePath, target)
+            for (entry in chosen) {
+                val target = destination(folder, entry.name, entry.isFolder)
+                val result = if (copy) {
+                    container.repository.copy(entry.relativePath, target)
+                } else {
+                    container.repository.move(entry.relativePath, target)
+                }
+                if (result is WebDavResult.Err) {
+                    message.value = errorText(getApplication(), result.error)
+                    refresh()
+                    return@launch
+                }
             }
-            when (result) {
-                is WebDavResult.Err -> message.value = errorText(getApplication(), result.error)
-                is WebDavResult.Ok -> refresh()
-            }
+            refresh()
         }
     }
 
@@ -302,8 +347,15 @@ class BrowserViewModel(
         return getApplication<Application>().contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
     }
 
+    private fun savedSort(): SortOrder {
+        val field = SortField.entries.firstOrNull { it.name == savedState.get<String>(SORT_FIELD) } ?: SortField.Name
+        return SortOrder(field, savedState.get<Boolean>(SORT_ASC) ?: true)
+    }
+
     private companion object {
         const val PATH = "path"
+        const val SORT_FIELD = "sortField"
+        const val SORT_ASC = "sortAsc"
     }
 }
 
@@ -387,12 +439,34 @@ class SyncViewModel(
 }
 
 class ImageViewModel(
-    container: AppContainer,
+    private val container: AppContainer,
     savedState: SavedStateHandle,
 ) : ViewModel() {
     val path: String = decodeNav(savedState.get<String>("path").orEmpty())
-    val name: String = container.urls.fileName(path)
-    val url: String? = container.repository.fileUrl(path)
+    val images = MutableStateFlow(listOf(path))
+    val ready = MutableStateFlow(false)
+
+    init {
+        val field = SortField.entries.firstOrNull { it.name == savedState.get<String>("field") } ?: SortField.Name
+        val ascending = savedState.get<String>("asc") != "false"
+        viewModelScope.launch {
+            val parent = if (path.isEmpty()) "" else container.urls.parentRelative(path) ?: ""
+            when (val result = container.repository.list(parent)) {
+                is WebDavResult.Ok -> {
+                    val photos = sortEntries(result.value, SortOrder(field, ascending))
+                        .filter { !it.isFolder && kindOf(it.name) == FileKind.Image }
+                        .map { it.relativePath }
+                    if (path in photos) images.value = photos
+                }
+                is WebDavResult.Err -> Unit
+            }
+            ready.value = true
+        }
+    }
+
+    fun urlOf(relative: String): String? = container.repository.fileUrl(relative)
+
+    fun fileName(relative: String): String = container.urls.fileName(relative)
 }
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])

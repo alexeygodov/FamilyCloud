@@ -77,7 +77,7 @@ class SyncRepository(
     suspend fun runSync(
         pairId: Long?,
         bypassConstraints: Boolean,
-        onProgress: suspend (done: Int, total: Int) -> Unit,
+        onProgress: (TransferProgress) -> Unit,
     ): SyncFailure? = syncLock.withLock {
         val connection = settings.snapshot() ?: return SyncFailure.NoConnection
         engine.cleanupParts(connection.baseUrl)
@@ -99,7 +99,7 @@ class SyncRepository(
         firstError
     }
 
-    suspend fun runUploads(onProgress: suspend (done: Int, total: Int) -> Unit): SyncFailure? = uploadLock.withLock {
+    suspend fun runUploads(onProgress: (TransferProgress) -> Unit): SyncFailure? = uploadLock.withLock {
         val base = settings.snapshot()?.baseUrl ?: return SyncFailure.NoConnection
         cleanupOrphans(base)
         var done = 0
@@ -108,8 +108,10 @@ class SyncRepository(
             val item = database.pendingUploadDao().next() ?: break
             currentCoroutineContext().ensureActive()
             val total = done + database.pendingUploadDao().count()
-            onProgress(done, total)
-            val error = uploadDocument(base, item)
+            onProgress(TransferProgress(done, total))
+            val error = uploadDocument(base, item) { sent, size ->
+                onProgress(TransferProgress(done, total, sent, size))
+            }
             if (error == null) {
                 database.pendingUploadDao().delete(item.id)
                 done += 1
@@ -127,7 +129,7 @@ class SyncRepository(
     private suspend fun syncPair(
         pair: SyncPairEntity,
         baseUrl: String,
-        onProgress: suspend (done: Int, total: Int) -> Unit,
+        onProgress: (TransferProgress) -> Unit,
     ): SyncFailure? {
         val files = try {
             scanner.files(pair.bucketId, pair.includePhotos, pair.includeVideos, pair.onlyNewSinceEpochMs)
@@ -147,7 +149,11 @@ class SyncRepository(
         return engine.uploadBatch(baseUrl, pair.id, pair.remoteFolder, pending, sizes, onProgress)
     }
 
-    private suspend fun uploadDocument(baseUrl: String, item: PendingUploadEntity): SyncFailure? {
+    private suspend fun uploadDocument(
+        baseUrl: String,
+        item: PendingUploadEntity,
+        onBytes: (sent: Long, size: Long) -> Unit = { _, _ -> },
+    ): SyncFailure? {
         val folder = if (item.destinationFolder.endsWith("/")) item.destinationFolder else "${item.destinationFolder}/"
         val folderUrl = urls.resolve(baseUrl, folder) ?: return SyncFailure.BadFolder
         val listing = when (val result = client.propfind(folderUrl, 1, baseUrl)) {
@@ -158,7 +164,7 @@ class SyncRepository(
         val decision = decideRemoteName(item.displayName, sizes, item.size)
         if (decision is NameDecision.AlreadyPresent) return null
         val remoteName = (decision as NameDecision.Upload).fileName
-        val outcome = engine.uploadLoose(baseUrl, folder, remoteName, item.size, item.sourceUri)
+        val outcome = engine.uploadLoose(baseUrl, folder, remoteName, item.size, item.sourceUri, onBytes)
         val orphan = outcome.orphanRelative
         if (orphan != null) database.orphanPartDao().insert(app.familycloud.data.db.OrphanPartEntity(orphan))
         return outcome.failure
@@ -235,7 +241,8 @@ private class RoomUploadStore(
 private class WebDavRemote(
     private val client: WebDavClient,
 ) : RemoteFiles {
-    override suspend fun put(url: String, source: InputStream, length: Long) = client.put(url, source, length) {}
+    override suspend fun put(url: String, source: InputStream, length: Long, onBytes: (sent: Long) -> Unit) =
+        client.put(url, source, length, onBytes)
     override suspend fun move(from: String, to: String) = client.move(from, to)
     override suspend fun delete(url: String) = client.delete(url)
 }

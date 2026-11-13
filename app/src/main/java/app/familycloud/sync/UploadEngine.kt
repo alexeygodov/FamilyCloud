@@ -18,7 +18,12 @@ interface UploadStore {
 }
 
 interface RemoteFiles {
-    suspend fun put(url: String, source: InputStream, length: Long): WebDavResult<Unit>
+    suspend fun put(
+        url: String,
+        source: InputStream,
+        length: Long,
+        onBytes: (sent: Long) -> Unit = {},
+    ): WebDavResult<Unit>
     suspend fun move(from: String, to: String): WebDavResult<Unit>
     suspend fun delete(url: String): WebDavResult<Unit>
 }
@@ -70,25 +75,27 @@ class UploadEngine(
         folder: String,
         files: List<PendingFile>,
         existingSizes: MutableMap<String, Long>,
-        onProgress: suspend (done: Int, total: Int) -> Unit = { _, _ -> },
+        onProgress: (TransferProgress) -> Unit = {},
     ): SyncFailure? {
         var shown: SyncFailure? = null
         var retry: SyncFailure? = null
         var consecutiveNetworkFailures = 0
         for ((index, file) in files.withIndex()) {
             currentCoroutineContext().ensureActive()
-            onProgress(index, files.size)
+            onProgress(TransferProgress(index, files.size))
             when (val decision = decideRemoteName(file.displayName, existingSizes, file.size)) {
                 NameDecision.AlreadyPresent -> {
                     store.upsert(record(pairId, file, folder + file.displayName, part = null))
                     consecutiveNetworkFailures = 0
                 }
                 is NameDecision.Upload -> {
-                    val problem = uploadOne(baseUrl, pairId, folder, file, decision.fileName)
+                    val problem = uploadOne(baseUrl, pairId, folder, file, decision.fileName) { sent, size ->
+                        onProgress(TransferProgress(index, files.size, sent, size))
+                    }
                     if (problem == null) {
                         consecutiveNetworkFailures = 0
                         existingSizes[decision.fileName] = file.size
-                        onProgress(index + 1, files.size)
+                        onProgress(TransferProgress(index + 1, files.size, file.size, file.size))
                         continue
                     }
                     shown = problem
@@ -110,6 +117,7 @@ class UploadEngine(
         folder: String,
         file: PendingFile,
         remoteName: String,
+        onBytes: (sent: Long, size: Long) -> Unit = { _, _ -> },
     ): SyncFailure? {
         val finalRelative = folder + remoteName
         val partRelative = folder + partName(remoteName)
@@ -126,7 +134,7 @@ class UploadEngine(
                 dropPart(partUrl, pairId, file.id)
                 return SyncFailure.LocalFile
             }
-            when (val put = remote.put(partUrl, stream, bytes)) {
+            when (val put = remote.put(partUrl, stream, bytes) { sent -> onBytes(sent, bytes) }) {
                 is WebDavResult.Ok -> {
                     stream.close()
                     uploaded = true
@@ -159,6 +167,7 @@ class UploadEngine(
         remoteName: String,
         size: Long,
         sourceKey: String,
+        onBytes: (sent: Long, size: Long) -> Unit = { _, _ -> },
     ): LooseUpload {
         val partRelative = folder + partName(remoteName)
         val partUrl = urls.resolve(baseUrl, partRelative) ?: return LooseUpload(SyncFailure.BadFolder, null)
@@ -172,7 +181,7 @@ class UploadEngine(
             if (stream == null) {
                 return LooseUpload(SyncFailure.LocalFile, orphanIfLeft(partUrl, partRelative))
             }
-            when (val put = remote.put(partUrl, stream, bytes)) {
+            when (val put = remote.put(partUrl, stream, bytes) { sent -> onBytes(sent, bytes) }) {
                 is WebDavResult.Ok -> {
                     stream.close()
                     uploaded = true

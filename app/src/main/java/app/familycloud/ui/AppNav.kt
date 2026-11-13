@@ -13,9 +13,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import app.familycloud.FamilyCloudApp
 import app.familycloud.R
 
@@ -53,7 +55,10 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
                 onSync = { nav.navigate("sync") },
                 onConfirmFolder = {},
                 onChooseDestination = { nav.navigate("picker") },
-                onOpenImage = { encoded -> nav.navigate("image/$encoded") },
+                onOpenImage = { encoded ->
+                    val order = model.sort.value
+                    nav.navigate("image/$encoded?field=${order.field.name}&asc=${order.ascending}")
+                },
                 onOpenVideo = { encoded -> nav.navigate("video/$encoded") },
             )
         }
@@ -90,7 +95,13 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
                 onPickFolder = { nav.navigate("picker") },
             )
         }
-        composable("image/{path}") {
+        composable(
+            route = "image/{path}?field={field}&asc={asc}",
+            arguments = listOf(
+                navArgument("field") { type = NavType.StringType; defaultValue = "Name" },
+                navArgument("asc") { type = NavType.StringType; defaultValue = "true" },
+            ),
+        ) {
             val model: ImageViewModel = viewModel(factory = factory)
             ImageScreen(model) { nav.popBackStack() }
         }

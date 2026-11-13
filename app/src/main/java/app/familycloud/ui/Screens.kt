@@ -6,12 +6,21 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -19,10 +28,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
@@ -31,6 +45,7 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -45,6 +60,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
@@ -59,6 +75,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -86,7 +103,12 @@ import androidx.media3.ui.PlayerView
 import app.familycloud.R
 import app.familycloud.data.webdav.FileKind
 import app.familycloud.data.webdav.RemoteEntry
+import app.familycloud.data.webdav.kindOf
+import app.familycloud.data.webdav.SortField
+import app.familycloud.data.webdav.SortOrder
 import coil3.compose.AsyncImage
+import coil3.compose.SubcomposeAsyncImage
+import coil3.request.ImageRequest
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -109,10 +131,12 @@ fun ConnectionScreen(viewModel: ConnectionViewModel, onConnected: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(stringResource(R.string.connection_title), style = MaterialTheme.typography.headlineSmall)
+            AppUpdateButton()
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
@@ -203,6 +227,7 @@ fun BrowserScreen(
     val transferring by viewModel.transferring.collectAsState()
     val message by viewModel.message.collectAsState()
     val failure by viewModel.failure.collectAsState()
+    val order by viewModel.sort.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var menuEntry by remember { mutableStateOf<RemoteEntry?>(null) }
@@ -210,7 +235,9 @@ fun BrowserScreen(
     var folderName by rememberSaveable { mutableStateOf("") }
     var renamePath by rememberSaveable { mutableStateOf<String?>(null) }
     var renameText by rememberSaveable { mutableStateOf("") }
-    var deletePath by rememberSaveable { mutableStateOf<String?>(null) }
+    var deletePaths by rememberSaveable(stateSaver = pathListSaver) { mutableStateOf(emptyList()) }
+    var selected by rememberSaveable(stateSaver = pathListSaver) { mutableStateOf(emptyList()) }
+    var sortMenu by remember { mutableStateOf(false) }
     val uploadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) viewModel.upload(uris)
     }
@@ -220,49 +247,141 @@ fun BrowserScreen(
         snackbar.showSnackbar(text)
         viewModel.consumeMessage()
     }
+    LaunchedEffect(entries) {
+        val live = entries.map { it.relativePath }.toSet()
+        selected = selected.filter { it in live }
+    }
+    val choosing = selected.isNotEmpty() && !picking
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = { Text(if (path.isEmpty()) stringResource(R.string.files_root) else path.trim('/')) },
-                navigationIcon = {
-                    if (path.isNotEmpty() || onBack != null) {
-                        IconButton(onClick = { if (path.isNotEmpty()) viewModel.up() else onBack?.invoke() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
+            if (choosing) {
+                TopAppBar(
+                    title = { Text(stringResource(R.string.selected_count, selected.size)) },
+                    navigationIcon = {
+                        IconButton(onClick = { selected = emptyList() }) {
+                            Icon(Icons.Filled.Close, stringResource(R.string.clear_selection))
                         }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { newFolder = true }) {
-                        Icon(Icons.Filled.CreateNewFolder, stringResource(R.string.new_folder))
-                    }
-                    if (picking) {
-                        TextButton(onClick = { onConfirmFolder(path) }) { Text(stringResource(R.string.pick_here)) }
-                    } else {
-                        IconButton(onClick = { viewModel.refresh() }) {
-                            Icon(Icons.Filled.Refresh, stringResource(R.string.refresh))
+                    },
+                    actions = {
+                        IconButton(onClick = {
+                            viewModel.downloadAll(entries.filter { it.relativePath in selected })
+                            selected = emptyList()
+                        }) { Icon(Icons.Filled.Download, stringResource(R.string.download)) }
+                        IconButton(onClick = {
+                            viewModel.stageTransfer(entries.filter { it.relativePath in selected }, copy = false)
+                            selected = emptyList()
+                            onChooseDestination()
+                        }) { Icon(Icons.AutoMirrored.Filled.DriveFileMove, stringResource(R.string.move)) }
+                        IconButton(onClick = {
+                            viewModel.stageTransfer(entries.filter { it.relativePath in selected }, copy = true)
+                            selected = emptyList()
+                            onChooseDestination()
+                        }) { Icon(Icons.Filled.ContentCopy, stringResource(R.string.copy)) }
+                        if (selected.size == 1) {
+                            IconButton(onClick = {
+                                val entry = entries.firstOrNull { it.relativePath == selected.first() }
+                                if (entry != null) {
+                                    renamePath = entry.relativePath
+                                    renameText = entry.name
+                                }
+                                selected = emptyList()
+                            }) { Icon(Icons.Filled.DriveFileRenameOutline, stringResource(R.string.rename)) }
                         }
-                        IconButton(onClick = onSync) {
-                            Icon(Icons.Filled.Sync, stringResource(R.string.sync_title))
+                        IconButton(onClick = { deletePaths = selected }) {
+                            Icon(Icons.Filled.Delete, stringResource(R.string.delete))
                         }
-                        IconButton(onClick = onConnection) {
-                            Icon(Icons.Filled.Settings, stringResource(R.string.connection_title))
+                    },
+                )
+            } else {
+                TopAppBar(
+                    title = { Text(if (path.isEmpty()) stringResource(R.string.files_root) else path.trim('/').substringAfterLast('/')) },
+                    navigationIcon = {
+                        if (path.isNotEmpty() || onBack != null) {
+                            IconButton(onClick = { if (path.isNotEmpty()) viewModel.up() else onBack?.invoke() }) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
+                            }
                         }
-                    }
-                },
-            )
+                    },
+                    actions = {
+                        Box {
+                            IconButton(onClick = { sortMenu = true }) {
+                                Icon(Icons.AutoMirrored.Filled.Sort, stringResource(R.string.sort))
+                            }
+                            DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                                SortField.entries.forEach { field ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                stringResource(
+                                                    when (field) {
+                                                        SortField.Name -> R.string.sort_name
+                                                        SortField.Date -> R.string.sort_date
+                                                        SortField.Size -> R.string.sort_size
+                                                    },
+                                                ),
+                                            )
+                                        },
+                                        onClick = {
+                                            viewModel.setSort(order.copy(field = field))
+                                            sortMenu = false
+                                        },
+                                        trailingIcon = if (order.field == field) {
+                                            { Text("✓") }
+                                        } else {
+                                            null
+                                        },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(if (order.ascending) R.string.sort_desc else R.string.sort_asc)) },
+                                    onClick = {
+                                        viewModel.setSort(order.copy(ascending = !order.ascending))
+                                        sortMenu = false
+                                    },
+                                )
+                            }
+                        }
+                        if (picking) {
+                            TextButton(onClick = { onConfirmFolder(path) }) { Text(stringResource(R.string.pick_here)) }
+                        } else {
+                            IconButton(onClick = { viewModel.refresh() }) {
+                                Icon(Icons.Filled.Refresh, stringResource(R.string.refresh))
+                            }
+                            IconButton(onClick = onSync) {
+                                Icon(Icons.Filled.Sync, stringResource(R.string.sync_title))
+                            }
+                            IconButton(onClick = onConnection) {
+                                Icon(Icons.Filled.Settings, stringResource(R.string.connection_title))
+                            }
+                        }
+                    },
+                )
+            }
         },
         floatingActionButton = {
-            if (!picking) {
-                FloatingActionButton(onClick = { uploadLauncher.launch(arrayOf("*/*")) }) {
-                    Icon(Icons.Filled.CloudUpload, stringResource(R.string.upload))
+            if (!choosing) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.End) {
+                    if (!picking) {
+                        SmallFloatingActionButton(onClick = { uploadLauncher.launch(arrayOf("*/*")) }) {
+                            Icon(Icons.Filled.CloudUpload, stringResource(R.string.upload))
+                        }
+                    }
+                    FloatingActionButton(onClick = { newFolder = true }) {
+                        Icon(Icons.Filled.Add, stringResource(R.string.new_folder))
+                    }
                 }
             }
         },
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        PullToRefreshBox(
+            isRefreshing = loading,
+            onRefresh = { viewModel.refresh() },
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
+        Column(Modifier.fillMaxSize()) {
+            Breadcrumbs(path) { viewModel.open(it) }
             if (transferring) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (failure != null) {
                 Column(Modifier.padding(16.dp)) {
@@ -276,46 +395,53 @@ fun BrowserScreen(
                     modifier = Modifier.padding(24.dp),
                 )
             }
-            LazyColumn(contentPadding = PaddingValues(bottom = 88.dp)) {
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 88.dp)) {
                 items(entries, key = { it.relativePath }) { entry ->
+                    val marked = entry.relativePath in selected
                     ListItem(
                         headlineContent = { Text(entry.label) },
                         supportingContent = { Text(details(entry)) },
-                        leadingContent = {
-                            Icon(
-                                when {
-                                    entry.isFolder -> Icons.Filled.Folder
-                                    viewModel.kind(entry) == FileKind.Image -> Icons.Filled.Image
-                                    viewModel.kind(entry) == FileKind.Video -> Icons.Filled.Movie
-                                    else -> Icons.AutoMirrored.Filled.InsertDriveFile
-                                },
-                                contentDescription = null,
+                        colors = if (marked) {
+                            androidx.compose.material3.ListItemDefaults.colors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
                             )
+                        } else {
+                            androidx.compose.material3.ListItemDefaults.colors()
                         },
+                        leadingContent = { EntryGlyph(entry, viewModel.previewUrl(entry)) },
                         trailingContent = {
-                            if (!picking) {
+                            if (!picking && !choosing) {
                                 IconButton(onClick = { menuEntry = entry }) {
-                                    Icon(Icons.Filled.MoreVert, contentDescription = null)
+                                    Icon(Icons.Filled.MoreVert, stringResource(R.string.more_actions))
                                 }
                             }
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable {
-                                if (entry.isFolder) {
-                                    val folder = if (entry.relativePath.endsWith("/")) entry.relativePath else "${entry.relativePath}/"
-                                    viewModel.open(folder)
-                                } else if (!picking) {
-                                    val encoded = encodeNav(entry.relativePath)
-                                    when (viewModel.kind(entry)) {
-                                        FileKind.Image -> onOpenImage(encoded)
-                                        FileKind.Video -> onOpenVideo(encoded)
-                                        FileKind.Other -> viewModel.openExternally(entry) { uri, mime ->
-                                            tryView(context, uri, mime)
+                            .combinedClickable(
+                                onClick = {
+                                    if (choosing) {
+                                        selected = if (marked) selected - entry.relativePath else selected + entry.relativePath
+                                    } else if (entry.isFolder) {
+                                        val folder = if (entry.relativePath.endsWith("/")) entry.relativePath else "${entry.relativePath}/"
+                                        viewModel.open(folder)
+                                    } else if (!picking) {
+                                        val encoded = encodeNav(entry.relativePath)
+                                        when (viewModel.kind(entry)) {
+                                            FileKind.Image -> onOpenImage(encoded)
+                                            FileKind.Video -> onOpenVideo(encoded)
+                                            FileKind.Other -> viewModel.openExternally(entry) { uri, mime ->
+                                                tryView(context, uri, mime)
+                                            }
                                         }
                                     }
-                                }
-                            },
+                                },
+                                onLongClick = {
+                                    if (!picking) {
+                                        selected = if (marked) selected - entry.relativePath else selected + entry.relativePath
+                                    }
+                                },
+                            ),
                     )
                     if (menuEntry?.relativePath == entry.relativePath) {
                         DropdownMenu(expanded = true, onDismissRequest = { menuEntry = null }) {
@@ -360,8 +486,7 @@ fun BrowserScreen(
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.move)) },
                                 onClick = {
-                                    viewModel.pendingEntry = entry
-                                    viewModel.pendingCopy = false
+                                    viewModel.stageTransfer(listOf(entry), copy = false)
                                     menuEntry = null
                                     onChooseDestination()
                                 },
@@ -369,8 +494,7 @@ fun BrowserScreen(
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.copy)) },
                                 onClick = {
-                                    viewModel.pendingEntry = entry
-                                    viewModel.pendingCopy = true
+                                    viewModel.stageTransfer(listOf(entry), copy = true)
                                     menuEntry = null
                                     onChooseDestination()
                                 },
@@ -379,13 +503,14 @@ fun BrowserScreen(
                                 text = { Text(stringResource(R.string.delete)) },
                                 onClick = {
                                     menuEntry = null
-                                    deletePath = entry.relativePath
+                                    deletePaths = listOf(entry.relativePath)
                                 },
                             )
                         }
                     }
                 }
             }
+        }
         }
     }
 
@@ -423,19 +548,28 @@ fun BrowserScreen(
             dismissButton = { TextButton(onClick = { renamePath = null }) { Text(stringResource(R.string.cancel)) } },
         )
     }
-    val deleting = entries.firstOrNull { it.relativePath == deletePath }
-    if (deleting != null) {
+    val deleting = entries.filter { it.relativePath in deletePaths }
+    if (deleting.isNotEmpty()) {
         AlertDialog(
-            onDismissRequest = { deletePath = null },
+            onDismissRequest = { deletePaths = emptyList() },
             title = { Text(stringResource(R.string.delete)) },
-            text = { Text(stringResource(R.string.delete_confirm, deleting.label)) },
+            text = {
+                Text(
+                    if (deleting.size == 1) {
+                        stringResource(R.string.delete_confirm, deleting.first().label)
+                    } else {
+                        stringResource(R.string.delete_many, deleting.size)
+                    },
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.delete(deleting)
-                    deletePath = null
+                    viewModel.deleteAll(deleting)
+                    selected = emptyList()
+                    deletePaths = emptyList()
                 }) { Text(stringResource(R.string.delete)) }
             },
-            dismissButton = { TextButton(onClick = { deletePath = null }) { Text(stringResource(R.string.cancel)) } },
+            dismissButton = { TextButton(onClick = { deletePaths = emptyList() }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }
@@ -620,37 +754,147 @@ private fun ToggleRow(label: String, checked: Boolean, onChecked: (Boolean) -> U
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ImageScreen(viewModel: ImageViewModel, onBack: () -> Unit) {
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    Scaffold(topBar = { TopAppBar(title = { Text(viewModel.name) }, navigationIcon = {
+    val images by viewModel.images.collectAsState()
+    val ready by viewModel.ready.collectAsState()
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { images.size.coerceAtLeast(1) })
+    var zoomed by remember { mutableStateOf(false) }
+    LaunchedEffect(ready) {
+        if (!ready) return@LaunchedEffect
+        val index = viewModel.images.value.indexOf(viewModel.path).coerceAtLeast(0)
+        pagerState.scrollToPage(index)
+    }
+    val current = images.getOrNull(pagerState.currentPage) ?: viewModel.path
+    Scaffold(topBar = { TopAppBar(title = { Text(viewModel.fileName(current)) }, navigationIcon = {
         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back)) }
     }) }) { padding ->
-        val url = viewModel.url
-        if (url == null) {
+        if (current.isEmpty()) {
             Text(stringResource(R.string.error_bad_path), modifier = Modifier.padding(padding).padding(24.dp))
         } else {
-            AsyncImage(
-                model = url,
-                contentDescription = viewModel.name,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            scale = (scale * zoom).coerceIn(1f, 5f)
-                            offset += pan
-                        }
+            HorizontalPager(
+                state = pagerState,
+                userScrollEnabled = !zoomed,
+                modifier = Modifier.fillMaxSize().padding(padding),
+            ) { page ->
+                val item = images.getOrNull(page) ?: return@HorizontalPager
+                val url = viewModel.urlOf(item)
+                if (url == null) {
+                    Text(stringResource(R.string.error_bad_path), modifier = Modifier.padding(24.dp))
+                } else {
+                    ZoomableImage(url, viewModel.fileName(item)) { zoomedNow ->
+                        if (page == pagerState.currentPage) zoomed = zoomedNow
                     }
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        translationX = offset.x
-                        translationY = offset.y
-                    },
-            )
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun ZoomableImage(url: String, name: String, onZoomed: (Boolean) -> Unit) {
+    var scale by remember(url) { mutableFloatStateOf(1f) }
+    var offset by remember(url) { mutableStateOf(Offset.Zero) }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val maxX = (constraints.maxWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
+        val maxY = (constraints.maxHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
+        AsyncImage(
+            model = url,
+            contentDescription = name,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(url) {
+                    detectTapGestures(onDoubleTap = {
+                        if (scale > 1f) {
+                            scale = 1f
+                            offset = Offset.Zero
+                            onZoomed(false)
+                        } else {
+                            scale = 2.5f
+                            onZoomed(true)
+                        }
+                    })
+                }
+                .pointerInput(url) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        val next = (scale * zoom).coerceIn(1f, 5f)
+                        val limitX = (constraints.maxWidth * (next - 1f) / 2f).coerceAtLeast(0f)
+                        val limitY = (constraints.maxHeight * (next - 1f) / 2f).coerceAtLeast(0f)
+                        scale = next
+                        offset = if (next == 1f) {
+                            Offset.Zero
+                        } else {
+                            Offset(
+                                (offset.x + pan.x).coerceIn(-limitX, limitX),
+                                (offset.y + pan.y).coerceIn(-limitY, limitY),
+                            )
+                        }
+                        onZoomed(next > 1f)
+                    }
+                }
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offset.x.coerceIn(-maxX, maxX)
+                    translationY = offset.y.coerceIn(-maxY, maxY)
+                },
+        )
+    }
+}
+
+@Composable
+private fun Breadcrumbs(path: String, onOpen: (String) -> Unit) {
+    val parts = path.trim('/').split('/').filter { it.isNotEmpty() }
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TextButton(onClick = { onOpen("") }) { Text(stringResource(R.string.files_root)) }
+        var walked = ""
+        parts.forEach { part ->
+            walked = if (walked.isEmpty()) "$part/" else "$walked$part/"
+            val target = walked
+            Text("/")
+            TextButton(onClick = { onOpen(target) }) { Text(part) }
+        }
+    }
+}
+
+@Composable
+private fun EntryGlyph(entry: RemoteEntry, preview: String?) {
+    val description = stringResource(
+        when {
+            entry.isFolder -> R.string.kind_folder
+            kindOf(entry.name) == FileKind.Image -> R.string.kind_image
+            kindOf(entry.name) == FileKind.Video -> R.string.kind_video
+            else -> R.string.kind_file
+        },
+    )
+    if (preview != null) {
+        val context = LocalContext.current
+        SubcomposeAsyncImage(
+            model = ImageRequest.Builder(context).data(preview).size(256, 256).build(),
+            contentDescription = description,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(40.dp),
+            loading = { FileGlyph(entry, description) },
+            error = { FileGlyph(entry, description) },
+        )
+    } else {
+        FileGlyph(entry, description)
+    }
+}
+
+@Composable
+private fun FileGlyph(entry: RemoteEntry, description: String) {
+    Icon(
+        when {
+            entry.isFolder -> Icons.Filled.Folder
+            kindOf(entry.name) == FileKind.Image -> Icons.Filled.Image
+            kindOf(entry.name) == FileKind.Video -> Icons.Filled.Movie
+            else -> Icons.AutoMirrored.Filled.InsertDriveFile
+        },
+        contentDescription = description,
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -718,6 +962,11 @@ private fun failureLabel(code: String): String {
     }
     return stringResource(R.string.sync_last_error, text)
 }
+
+private val pathListSaver = listSaver<List<String>, String>(
+    save = { it },
+    restore = { it },
+)
 
 private fun tryView(context: android.content.Context, uri: Uri, mime: String): Boolean = try {
     context.startActivity(

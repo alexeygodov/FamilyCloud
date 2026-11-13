@@ -132,8 +132,14 @@ private class FakeRemote(
     val puts = mutableListOf<String>()
     val deletes = mutableListOf<String>()
 
-    override suspend fun put(url: String, source: InputStream, length: Long): WebDavResult<Unit> {
+    override suspend fun put(
+        url: String,
+        source: InputStream,
+        length: Long,
+        onBytes: (sent: Long) -> Unit,
+    ): WebDavResult<Unit> {
         puts += url
+        if (put is WebDavResult.Ok) onBytes(length)
         return put
     }
 
