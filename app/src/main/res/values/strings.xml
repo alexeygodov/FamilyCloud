@@ -134,4 +134,9 @@
     <string name="pick_move_here">Переместить сюда</string>
     <string name="pick_copy_here">Копировать сюда</string>
     <string name="pick_album_here">Выбрать эту папку</string>
+    <string name="empty_folder_hint">Загрузите файлы или создайте папку</string>
+    <string name="error_unauthorized_short">Неверный логин или пароль</string>
+    <string name="notice_dismiss">Закрыть</string>
+    <string name="transfer_upload">Загрузка %1$d из %2$d · %3$s</string>
+    <string name="transfer_upload_short">Загрузка %1$d из %2$d</string>
 </resources>

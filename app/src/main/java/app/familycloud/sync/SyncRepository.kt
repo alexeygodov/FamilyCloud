@@ -108,9 +108,9 @@ class SyncRepository(
             val item = database.pendingUploadDao().next() ?: break
             currentCoroutineContext().ensureActive()
             val total = done + database.pendingUploadDao().count()
-            onProgress(TransferProgress(done, total))
+            onProgress(TransferProgress(done, total, name = item.displayName))
             val error = uploadDocument(base, item) { sent, size ->
-                onProgress(TransferProgress(done, total, sent, size))
+                onProgress(TransferProgress(done, total, sent, size, item.displayName))
             }
             if (error == null) {
                 database.pendingUploadDao().delete(item.id)

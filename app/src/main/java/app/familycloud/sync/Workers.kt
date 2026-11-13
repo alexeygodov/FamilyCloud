@@ -226,6 +226,15 @@ internal suspend fun CloudWorker.forwardProgress(
         var allowed = true
         val ui = launch {
             for (update in updates) {
+                setProgress(
+                    workDataOf(
+                        TransferKeys.DONE to update.done,
+                        TransferKeys.TOTAL to update.total,
+                        TransferKeys.SENT to update.sent,
+                        TransferKeys.SIZE to update.size,
+                        TransferKeys.NAME to update.name,
+                    ),
+                )
                 if (allowed) allowed = show(update)
             }
         }

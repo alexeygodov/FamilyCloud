@@ -5,7 +5,16 @@ data class TransferProgress(
     val total: Int,
     val sent: Long = 0L,
     val size: Long = 0L,
+    val name: String = "",
 )
+
+object TransferKeys {
+    const val DONE = "done"
+    const val TOTAL = "total"
+    const val SENT = "sent"
+    const val SIZE = "size"
+    const val NAME = "name"
+}
 
 /**
  * Уведомление нельзя обновлять на каждый прочитанный буфер.

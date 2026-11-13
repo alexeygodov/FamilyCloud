@@ -82,7 +82,7 @@ class UploadEngine(
         var consecutiveNetworkFailures = 0
         for ((index, file) in files.withIndex()) {
             currentCoroutineContext().ensureActive()
-            onProgress(TransferProgress(index, files.size))
+            onProgress(TransferProgress(index, files.size, name = file.displayName))
             when (val decision = decideRemoteName(file.displayName, existingSizes, file.size)) {
                 NameDecision.AlreadyPresent -> {
                     store.upsert(record(pairId, file, folder + file.displayName, part = null))
@@ -90,12 +90,12 @@ class UploadEngine(
                 }
                 is NameDecision.Upload -> {
                     val problem = uploadOne(baseUrl, pairId, folder, file, decision.fileName) { sent, size ->
-                        onProgress(TransferProgress(index, files.size, sent, size))
+                        onProgress(TransferProgress(index, files.size, sent, size, decision.fileName))
                     }
                     if (problem == null) {
                         consecutiveNetworkFailures = 0
                         existingSizes[decision.fileName] = file.size
-                        onProgress(TransferProgress(index + 1, files.size, file.size, file.size))
+                        onProgress(TransferProgress(index + 1, files.size, file.size, file.size, decision.fileName))
                         continue
                     }
                     shown = problem

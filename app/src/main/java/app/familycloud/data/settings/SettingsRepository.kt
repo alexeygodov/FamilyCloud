@@ -6,12 +6,15 @@ import app.familycloud.data.webdav.AuthScheme
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 
 data class SavedConnection(
     val baseUrl: String,
@@ -78,6 +81,14 @@ class SettingsRepository(context: Context) {
 
     fun snapshot(): SavedConnection? = attempt ?: state.value
 
+    val dismissedNotices: Flow<Set<String>> = dataStore.data.map { it[DISMISSED] ?: emptySet() }
+
+    suspend fun dismissNotice(id: String) {
+        dataStore.edit { prefs ->
+            prefs[DISMISSED] = (prefs[DISMISSED] ?: emptySet()) + id
+        }
+    }
+
     private fun createSecurePrefs(context: Context): SharedPreferences {
         return try {
             openSecure(context)
@@ -107,5 +118,6 @@ class SettingsRepository(context: Context) {
         val LOGIN = stringPreferencesKey("login")
         val ALLOW_HTTP = booleanPreferencesKey("allow_http")
         val AUTH_SCHEME = stringPreferencesKey("auth_scheme")
+        val DISMISSED = stringSetPreferencesKey("dismissed_notices")
     }
 }

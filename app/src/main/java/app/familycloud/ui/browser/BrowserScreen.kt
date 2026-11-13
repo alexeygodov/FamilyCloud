@@ -81,6 +81,9 @@ import app.familycloud.data.webdav.RemoteEntry
 import app.familycloud.data.webdav.SortField
 import app.familycloud.data.webdav.SortOrder
 import app.familycloud.data.webdav.kindOf
+import app.familycloud.ui.components.TransferBar
+import app.familycloud.ui.components.TransferBarState
+import app.familycloud.ui.components.rememberWorkTransfer
 import app.familycloud.ui.encodeNav
 import app.familycloud.ui.formatByteSize
 import app.familycloud.ui.formatEpoch
@@ -107,6 +110,7 @@ fun BrowserRoute(
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     val order by viewModel.sort.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val transfer = rememberWorkTransfer("uploads")
     val uploadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) viewModel.upload(uris)
     }
@@ -143,6 +147,7 @@ fun BrowserRoute(
             viewModel.openExternally(entry) { uri, mime -> tryView(context, uri, mime) }
         },
         kindOfEntry = viewModel::kind,
+        transfer = transfer,
     )
 }
 
@@ -179,6 +184,7 @@ fun BrowserScreen(
     onUpload: () -> Unit,
     onOpenExternal: (RemoteEntry) -> Unit,
     kindOfEntry: (RemoteEntry) -> FileKind,
+    transfer: TransferBarState?,
 ) {
     val snackbar = remember { SnackbarHostState() }
     var menuEntry by remember { mutableStateOf<RemoteEntry?>(null) }
@@ -278,6 +284,9 @@ fun BrowserScreen(
         ) {
             Column(Modifier.fillMaxSize()) {
                 Breadcrumbs(path, onOpen)
+                if (transfer != null) {
+                    TransferBar(transfer.label, transfer.fraction, transfer.uploading, transfer.onCancel)
+                }
                 if (transferring) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if (failure != null) {
                     Column(Modifier.padding(Dimens.l)) {
