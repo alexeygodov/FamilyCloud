@@ -26,12 +26,18 @@ class UpdatePolicyTest {
         rejects { UpdatePolicy.selectAsset(listOf(asset(true).copy(digest = "sha256:bad")), true) }
     }
 
-    @Test fun comparesVersionCodeNotVersionName() {
-        assertTrue(UpdatePolicy.isNewer(5, 6))
-        assertFalse(UpdatePolicy.isNewer(6, 6))
-        assertFalse(UpdatePolicy.isNewer(6, 5))
-        assertTrue(UpdatePolicy.isNewer(6, Int.MAX_VALUE.toLong() + 1))
-        rejects { UpdatePolicy.isNewer(5, 0) }
+    @Test fun comparesSemanticVersionsFromReleaseNotes() {
+        val notes = "Сборка\nversionName=1.0.2\nversionCode=12\n"
+        assertEquals(AppVersion("1.0.2", 12), UpdatePolicy.versionFromNotes(notes))
+        assertTrue(UpdatePolicy.isNewer("1.0.1", 11, AppVersion("1.0.2", 12)))
+        assertTrue(UpdatePolicy.isNewer("1.0.1-debug", 11, AppVersion("1.10.0", 12)))
+        assertFalse(UpdatePolicy.isNewer("1.0.2-debug", 12, AppVersion("1.0.2", 13)))
+        assertFalse(UpdatePolicy.isNewer("1.0.2", 12, AppVersion("1.0.1", 13)))
+        assertTrue(UpdatePolicy.matches("1.0.2-debug", 12, AppVersion("1.0.2", 12)))
+        assertFalse(UpdatePolicy.matches("1.0.2", 11, AppVersion("1.0.2", 12)))
+        rejects { UpdatePolicy.versionFromNotes("versionName=1.0\nversionCode=12") }
+        rejects { UpdatePolicy.isNewer("1.0.1", 12, AppVersion("1.0.2", 12)) }
+        rejects { UpdatePolicy.isNewer("1.0.1", 0, AppVersion("1.0.2", 12)) }
     }
 
     @Test fun requiresExactPackageAndNonemptyCurrentSigningSet() {

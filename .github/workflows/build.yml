@@ -99,6 +99,26 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Read app version
+        id: version
+        run: |
+          set -euo pipefail
+          name=$(grep '^versionName=' version.properties | cut -d= -f2-)
+          code=$(grep '^versionCode=' version.properties | cut -d= -f2-)
+          if ! printf '%s' "$name" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+            echo "versionName must be major.minor.patch" >&2
+            exit 1
+          fi
+          if ! printf '%s' "$code" | grep -Eq '^[1-9][0-9]*$'; then
+            echo "versionCode must be a positive integer" >&2
+            exit 1
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
       - name: Download debug APK
         uses: actions/download-artifact@v8
         with:
@@ -123,22 +143,19 @@ jobs:
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'latest' }}
           target_commitish: ${{ github.sha }}
-          name: ${{ github.ref_type == 'tag' && format('FamilyCloud {0}', github.ref_name) || 'Последняя сборка' }}
+          name: FamilyCloud ${{ steps.version.outputs.name }}
           prerelease: ${{ github.ref_type != 'tag' }}
           make_latest: ${{ github.ref_type == 'tag' && 'true' || 'false' }}
           overwrite_files: true
           fail_on_unmatched_files: true
           body: |
-            Сборка GitHub Actions.
+            versionName=${{ steps.version.outputs.name }}
+            versionCode=${{ steps.version.outputs.code }}
             FamilyCloudApp.apk — подписанный release.
             FamilyCloudApp-debug.apk — debug.
           files: |
             dist/debug/*.apk
             dist/release/*.apk
-
-      - name: Checkout to move the floating tag
-        if: github.ref == 'refs/heads/main'
-        uses: actions/checkout@v6
 
       - name: Move latest tag to this commit
         if: github.ref == 'refs/heads/main'

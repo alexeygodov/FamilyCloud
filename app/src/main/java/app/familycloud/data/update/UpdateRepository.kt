@@ -27,6 +27,8 @@ import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
+internal data class CheckedUpdate(val apk: File?, val versionName: String)
+
 /** Independent of WebDAV: no authenticators, cookies, credentials, or shared interceptors. */
 internal class UpdateRepository(
     private val context: Context,
@@ -41,7 +43,7 @@ internal class UpdateRepository(
         .callTimeout(5, TimeUnit.MINUTES)
         .build()
 
-    suspend fun check(onProgress: (Long, Long) -> Unit): File? = withContext(io) {
+    suspend fun check(onProgress: (Long, Long) -> Unit): CheckedUpdate = withContext(io) {
         cleanupFiles()
         directory.mkdirs()
         val apk = File(directory, "update.apk")
@@ -68,6 +70,12 @@ internal class UpdateRepository(
             if (release.getString("tag_name") != "latest" || release.optBoolean("draft")) {
                 throw UpdateFailure(UpdateProblem.Release)
             }
+            val announced = UpdatePolicy.versionFromNotes(release.optString("body"))
+            val installed = installedVersion()
+            if (!UpdatePolicy.isNewer(installed.name, installed.code, announced)) {
+                return@withContext CheckedUpdate(null, UpdatePolicy.canonical(installed.name))
+            }
+            announcedVersion = announced
             val assets = release.getJSONArray("assets")
             val asset = UpdatePolicy.selectAsset((0 until assets.length()).map { index ->
                 val value = assets.getJSONObject(index)
@@ -109,8 +117,9 @@ internal class UpdateRepository(
                     throw UpdateFailure(UpdateProblem.InvalidApk)
                 }
             }
-            keep = validate(apk)
-            if (keep) apk else null
+            validate(apk, announced)
+            keep = true
+            CheckedUpdate(apk, announced.name)
         } catch (error: CancellationException) {
             throw error
         } catch (error: UpdateFailure) {
@@ -126,9 +135,11 @@ internal class UpdateRepository(
 
     /** Re-read package, version and certificates immediately before handing off to Android. */
     suspend fun prepareInstall(apk: File): Uri = withContext(io) {
-        if (!apk.isFile || apk.length() !in 1..UpdatePolicy.MAX_APK_BYTES || !validate(apk)) {
+        val announced = announcedVersion ?: throw UpdateFailure(UpdateProblem.InvalidApk)
+        if (!apk.isFile || apk.length() !in 1..UpdatePolicy.MAX_APK_BYTES) {
             throw UpdateFailure(UpdateProblem.InvalidApk)
         }
+        validate(apk, announced)
         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
     }
 
@@ -139,7 +150,14 @@ internal class UpdateRepository(
     }
 
     @Suppress("DEPRECATION")
-    private fun validate(apk: File): Boolean {
+    private fun installedVersion(): AppVersion {
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        val name = info.versionName ?: throw UpdateFailure(UpdateProblem.InvalidApk)
+        return AppVersion(name, version(info))
+    }
+
+    @Suppress("DEPRECATION")
+    private fun validate(apk: File, announced: AppVersion) {
         val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
         val manager = context.packageManager
         val installed = manager.getPackageInfo(context.packageName, flags)
@@ -151,8 +169,11 @@ internal class UpdateRepository(
         }
         val downloadedSigners = signers(downloaded)
         if (downloadedSigners.isEmpty()) throw UpdateFailure(UpdateProblem.InvalidApk)
+        val actualName = downloaded.versionName ?: throw UpdateFailure(UpdateProblem.InvalidApk)
+        if (!UpdatePolicy.matches(actualName, version(downloaded), announced)) {
+            throw UpdateFailure(UpdateProblem.InvalidApk)
+        }
         UpdatePolicy.validateIdentity(installed.packageName, downloaded.packageName, signers(installed), downloadedSigners)
-        return UpdatePolicy.isNewer(version(installed), version(downloaded))
     }
 
     @Suppress("DEPRECATION")
@@ -215,6 +236,8 @@ internal class UpdateRepository(
     }
 
     private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    private var announcedVersion: AppVersion? = null
 
     private sealed interface Fetch<out T> {
         data object Redirect : Fetch<Nothing>

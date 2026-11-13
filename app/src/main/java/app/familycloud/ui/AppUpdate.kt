@@ -54,13 +54,13 @@ internal class UpdateViewModel(application: Application) : AndroidViewModel(appl
         mutableState.value = UpdateUiState(visible = true, busy = true)
         job = viewModelScope.launch {
             try {
-                val file = repository.check { done, total ->
+                val result = repository.check { done, total ->
                     ensureActive()
                     mutableState.value = UpdateUiState(visible = true, busy = true,
                         downloaded = done, total = total, message = R.string.update_downloading)
                 }
-                mutableState.value = UpdateUiState(visible = true, ready = file, versionName = file?.let(::archiveVersion),
-                    message = if (file == null) R.string.update_current else R.string.update_ready)
+                mutableState.value = UpdateUiState(visible = true, ready = result.apk, versionName = result.versionName,
+                    message = if (result.apk == null) R.string.update_current else R.string.update_ready)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: UpdateFailure) {
@@ -90,9 +90,6 @@ internal class UpdateViewModel(application: Application) : AndroidViewModel(appl
     }
 
     fun installUnavailable() = fail(UpdateProblem.Install)
-
-    private fun archiveVersion(apk: File): String? =
-        getApplication<Application>().packageManager.getPackageArchiveInfo(apk.path, 0)?.versionName
 
     private fun fail(problem: UpdateProblem) {
         mutableState.value = UpdateUiState(visible = true, message = when (problem) {

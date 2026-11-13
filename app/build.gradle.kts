@@ -6,6 +6,15 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val appVersion = Properties().apply {
+    rootProject.file("version.properties").inputStream().use(::load)
+}
+val appVersionName = appVersion.getProperty("versionName")
+val appVersionCode = appVersion.getProperty("versionCode")?.toIntOrNull()
+if (appVersionName.isNullOrBlank() || appVersionCode == null || appVersionCode <= 0) {
+    error("version.properties must contain versionName and a positive versionCode")
+}
+
 val keystoreProperties = Properties().apply {
     val file = rootProject.file("keystore.properties")
     if (file.isFile) {
@@ -39,8 +48,8 @@ android {
         applicationId = "app.familycloud"
         minSdk = 26
         targetSdk = 37
-        versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()?.takeIf { it > 5 } ?: 5)
-        versionName = "1.0.1"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     compileOptions {

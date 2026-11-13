@@ -110,10 +110,10 @@
     <string name="unit_gb">ГБ</string>
     <string name="update_button">Проверить обновление</string>
     <string name="update_title">Обновление FamilyCloud</string>
-    <string name="update_checking">Проверяем релиз на GitHub… Для сравнения версии потребуется скачать APK.</string>
-    <string name="update_downloading">Скачиваем и проверяем APK…</string>
-    <string name="update_current">В релизе нет более новой версии приложения.</string>
-    <string name="update_ready">Новая версия проверена. Нажмите «Установить». При необходимости разрешите установку из этого источника и нажмите ещё раз.</string>
+    <string name="update_checking">Проверяем версию на GitHub…</string>
+    <string name="update_downloading">Скачиваем обновление…</string>
+    <string name="update_current">Установлена версия %1$s. Это последняя.</string>
+    <string name="update_ready">Доступна версия %1$s. Нажмите «Установить». При необходимости разрешите установку из этого источника и нажмите ещё раз.</string>
     <string name="update_progress">%1$d / %2$d КиБ</string>
     <string name="update_network_error">Не удалось скачать обновление. Проверьте сеть и повторите проверку.</string>
     <string name="update_release_error">Релиз latest недоступен или GitHub ограничил запросы. Повторите позже.</string>
