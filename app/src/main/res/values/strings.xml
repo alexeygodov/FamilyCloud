@@ -195,4 +195,10 @@
     <string name="sync_progress_named">%1$d из %2$d · %3$s</string>
     <string name="sync_done_count">Выгружено %1$d файлов</string>
     <string name="sync_stopped">Выгрузка остановлена: %1$s</string>
+    <string name="viewer_count">%1$d из %2$d</string>
+    <string name="viewer_details">Сведения</string>
+    <string name="viewer_size">Размер: %1$s</string>
+    <string name="viewer_date">Дата: %1$s</string>
+    <string name="viewer_path">Путь: %1$s</string>
+    <string name="viewer_video_error">Не удалось воспроизвести видео. Формат не поддерживается или сервер не отдаёт файл по частям.</string>
 </resources>

@@ -20,7 +20,7 @@ class AppViewModelFactory(
             ConnectionViewModel::class.java -> ConnectionViewModel(app, container.repository, container.settings)
             BrowserViewModel::class.java -> BrowserViewModel(app, container, extras.createSavedStateHandle())
             SyncViewModel::class.java -> SyncViewModel(app, container)
-            ImageViewModel::class.java -> ImageViewModel(container, extras.createSavedStateHandle())
+            ImageViewModel::class.java -> ImageViewModel(app, container, extras.createSavedStateHandle())
             VideoViewModel::class.java -> VideoViewModel(app, container, extras.createSavedStateHandle())
             else -> error("Unknown model ${modelClass.name}")
         }
