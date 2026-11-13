@@ -62,6 +62,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.core.content.ContextCompat
@@ -558,7 +559,7 @@ private fun AlbumLine(album: LocalAlbum, added: Boolean) {
         }
         Column(Modifier.padding(start = Dimens.m).weight(1f)) {
             Text(album.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(stringResource(R.string.sync_album_count, album.count), style = MaterialTheme.typography.bodySmall)
+            Text(pluralStringResource(R.plurals.files, album.count, album.count), style = MaterialTheme.typography.bodySmall)
         }
         if (added) Text(stringResource(R.string.sync_added))
     }
@@ -589,7 +590,7 @@ private fun OptionsSheet(
                 Text(stringResource(R.string.sync_only_new), modifier = Modifier.weight(1f))
                 Switch(checked = onlyNew, onCheckedChange = { onlyNew = it })
             }
-            Text(stringResource(R.string.sync_only_new_hint, draft.album.count))
+            Text(stringResource(R.string.sync_only_new_hint, pluralStringResource(R.plurals.files, draft.album.count, draft.album.count)))
             TextButton(onClick = { onConfirm(photos, videos, wifi, charging, onlyNew) }) {
                 Text(stringResource(R.string.sync_done))
             }

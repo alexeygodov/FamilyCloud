@@ -14,4 +14,5 @@ object Dimens {
     val previewLarge = 56.dp
     val emptyIcon = 64.dp
     val fabClearance = 88.dp
+    val contentMax = 840.dp
 }

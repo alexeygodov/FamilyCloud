@@ -22,7 +22,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -91,6 +93,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
@@ -116,6 +119,8 @@ import app.familycloud.ui.components.rememberWorkTransfer
 import app.familycloud.ui.encodeNav
 import app.familycloud.ui.formatByteSize
 import app.familycloud.ui.formatEpoch
+import app.familycloud.ui.components.glyphKind
+import app.familycloud.ui.components.GlyphKind
 import app.familycloud.ui.theme.Dimens
 import app.familycloud.ui.theme.FamilyCloudTheme
 
@@ -350,7 +355,13 @@ fun BrowserScreen(
             onRefresh = onRefresh,
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
-            Column(Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .widthIn(max = Dimens.contentMax)
+                    .fillMaxWidth()
+                    .fillMaxHeight(),
+            ) {
                 if (path.isNotEmpty()) Breadcrumbs(path, onOpen)
                 if (uploadLabel != null) {
                     TransferBar(uploadLabel, uploadFraction, uploading = true, onCancel = onCancelUpload)
@@ -618,6 +629,7 @@ private fun FileRow(
     onCopy: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val spoken = rowDescription(entry)
     ListItem(
         headlineContent = {
             Text(entry.label, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.MiddleEllipsis)
@@ -690,7 +702,10 @@ private fun FileRow(
         },
         modifier = Modifier
             .fillMaxWidth()
-            .semantics { if (choosing) selected = marked }
+            .semantics(mergeDescendants = true) {
+                contentDescription = spoken
+                if (choosing) selected = marked
+            }
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     )
 }
@@ -824,6 +839,19 @@ private fun openEntry(
 
 private fun toggle(selected: List<String>, path: String): List<String> {
     return if (path in selected) selected - path else selected + path
+}
+
+@Composable
+private fun rowDescription(entry: RemoteEntry): String {
+    val kind = when {
+        entry.isFolder -> stringResource(R.string.kind_folder)
+        else -> when (glyphKind(entry.name, folder = false)) {
+            GlyphKind.Image -> stringResource(R.string.kind_image)
+            GlyphKind.Video -> stringResource(R.string.kind_video)
+            else -> stringResource(R.string.kind_file)
+        }
+    }
+    return listOf(entry.label, kind, details(entry)).filter { it.isNotEmpty() }.joinToString(", ")
 }
 
 @Composable

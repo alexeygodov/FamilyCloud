@@ -38,6 +38,7 @@ import androidx.compose.ui.res.stringResource
 import app.familycloud.ui.theme.Dimens
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.familycloud.R
+import app.familycloud.ui.components.LoadingList
 import app.familycloud.data.webdav.RemoteEntry
 
 @Composable
@@ -138,9 +139,8 @@ fun FolderPickerScreen(
         Column(Modifier.fillMaxSize().padding(padding)) {
             Breadcrumbs(path, onOpen)
             if (loading && folders.isEmpty()) {
-                Text(stringResource(R.string.loading), modifier = Modifier.padding(Dimens.xl))
-            }
-            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = Dimens.s)) {
+                LoadingList(Modifier.weight(1f))
+            } else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = Dimens.s)) {
                 items(folders, key = { it.relativePath }) { entry ->
                     ListItem(
                         headlineContent = { Text(entry.label, maxLines = 1) },

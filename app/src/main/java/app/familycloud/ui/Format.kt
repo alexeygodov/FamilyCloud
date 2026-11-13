@@ -11,8 +11,17 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun formatEpoch(epochMs: Long): String {
     val locale = LocalConfiguration.current.locales[0]
-    return DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm", locale)
-        .format(Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()))
+    val zone = ZoneId.systemDefault()
+    val time = Instant.ofEpochMilli(epochMs).atZone(zone)
+    val today = java.time.LocalDate.now(zone)
+    val date = time.toLocalDate()
+    val clock = DateTimeFormatter.ofPattern("HH:mm", locale).format(time)
+    return when {
+        date == today -> clock
+        date == today.minusDays(1) -> stringResource(R.string.date_yesterday, clock)
+        date.year == today.year -> DateTimeFormatter.ofPattern("d MMM, HH:mm", locale).format(time)
+        else -> DateTimeFormatter.ofPattern("dd.MM.yyyy", locale).format(time)
+    }
 }
 
 @Composable
