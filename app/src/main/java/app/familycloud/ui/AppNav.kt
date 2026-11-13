@@ -60,8 +60,10 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
                         nav.navigate("browser") {
                             popUpTo(entry.destination.id) { inclusive = true }
                         }
+                        nav.getBackStackEntry("browser").savedStateHandle["justConnected"] = true
                     } else {
                         nav.previousBackStackEntry?.savedStateHandle?.set("refreshAfterConnect", true)
+                        nav.previousBackStackEntry?.savedStateHandle?.set("justConnected", true)
                         nav.popBackStack()
                     }
                 },
@@ -82,6 +84,14 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
                     if (refresh) {
                         entry.savedStateHandle["refreshAfterConnect"] = false
                         model.refresh()
+                    }
+                }
+            }
+            LaunchedEffect(entry) {
+                entry.savedStateHandle.getStateFlow("justConnected", false).collect { connected ->
+                    if (connected) {
+                        entry.savedStateHandle["justConnected"] = false
+                        model.notifyConnected()
                     }
                 }
             }

@@ -8,6 +8,7 @@ object Dimens {
     val m = 12.dp
     val l = 16.dp
     val xl = 24.dp
+    val spinner = 20.dp
     val listIcon = 40.dp
     val emptyIcon = 64.dp
     val fabClearance = 88.dp

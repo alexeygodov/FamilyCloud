@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.familycloud.R
 import app.familycloud.data.settings.SettingsRepository
+import app.familycloud.data.webdav.WebDavError
 import app.familycloud.data.webdav.WebDavRepository
 import app.familycloud.data.webdav.WebDavResult
 import app.familycloud.sync.errorText
@@ -34,7 +35,15 @@ class ConnectionViewModel(
             }
             when (val result = repository.test(url, login.trim(), password, allowHttp)) {
                 is WebDavResult.Ok -> onDone()
-                is WebDavResult.Err -> error.value = errorText(getApplication(), result.error)
+                is WebDavResult.Err -> {
+                    val app = getApplication<Application>()
+                    error.value = if (result.error is WebDavError.Unauthorized) {
+                        app.getString(R.string.error_unauthorized_short) + "\n" +
+                            app.getString(R.string.error_lockout)
+                    } else {
+                        errorText(app, result.error)
+                    }
+                }
             }
             busy.value = false
         }

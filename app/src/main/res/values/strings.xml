@@ -160,4 +160,16 @@
     <string name="sort_caption">%1$s, %2$s</string>
     <string name="download_progress">Скачивание %1$d из %2$d · %3$s</string>
     <string name="home">Начало</string>
+    <string name="connection_intro">Укажите адрес WebDAV вашего роутера</string>
+    <string name="connection_url_placeholder">https://имя.keenetic.link/webdav/</string>
+    <string name="login_case">Учитывается регистр букв</string>
+    <string name="connection_details">Подробности</string>
+    <string name="error_lockout">Несколько неудачных попыток подряд роутер может заблокировать адрес.</string>
+    <string name="connected">Подключено</string>
+    <string name="update_version_check">Версия %1$s · Проверить обновление</string>
+    <string name="update_available_short">Доступна версия %1$s</string>
+    <string name="update_latest">У вас последняя версия</string>
+    <string name="update_progress_mb">%1$s из %2$s МБ · %3$d%%</string>
+    <string name="update_install_permission">Разрешите установку из FamilyCloud</string>
+    <string name="update_open_settings">Открыть настройки</string>
 </resources>

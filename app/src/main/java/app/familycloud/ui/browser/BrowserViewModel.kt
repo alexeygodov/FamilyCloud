@@ -91,6 +91,10 @@ class BrowserViewModel(
         post(getApplication<Application>().getString(R.string.uploaded_count, count))
     }
 
+    fun notifyConnected() {
+        post(getApplication<Application>().getString(R.string.connected))
+    }
+
     fun consumeMessage() {
         message.value = null
     }
