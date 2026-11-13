@@ -24,6 +24,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import app.familycloud.FamilyCloudApp
+import app.familycloud.MainActivity
 import app.familycloud.R
 import app.familycloud.data.db.SyncPairEntity
 import kotlinx.coroutines.channels.Channel
@@ -68,13 +69,21 @@ class SyncWorker(
         val pairId = inputData.getLong(PAIR, -1L).takeIf { it >= 0L }
         val bypass = inputData.getBoolean(BYPASS, false)
         val cancellable = inputData.getBoolean(BYPASS, false)
+        var last = TransferProgress(0, 0)
         val failure = forwardProgress(
             show = { update ->
-                val text = applicationContext.getString(R.string.sync_progress, update.done, update.total)
-                tryForeground(foreground(text, update, cancellable))
+                last = update
+                tryForeground(foreground(progressText(applicationContext, update), update, cancellable))
             },
             work = { report -> app.container.sync.runSync(pairId, bypass, report) },
         )
+        if (cancellable) {
+            if (failure == null) {
+                finishNotification(applicationContext, success = true, count = last.total.coerceAtLeast(last.done), reason = null)
+            } else if (!failure.retryable) {
+                finishNotification(applicationContext, success = false, count = 0, reason = failureReason(applicationContext, failure))
+            }
+        }
         return if (failure?.retryable == true) Result.retry() else Result.success()
     }
 
@@ -111,8 +120,7 @@ class UploadWorker(
         val failure = forwardProgress(
             show = { update ->
                 last = update
-                val text = applicationContext.getString(R.string.sync_progress, update.done, update.total)
-                tryForeground(foreground(text, update))
+                tryForeground(foreground(progressText(applicationContext, update), update))
             },
             work = { report -> app.container.sync.runUploads(report) },
         )
@@ -125,7 +133,7 @@ class UploadWorker(
     }
 
     private fun foreground(text: String, progress: TransferProgress? = null): ForegroundInfo {
-        val notification = syncNotification(applicationContext, text, id, cancellable = true, progress)
+        val notification = syncNotification(applicationContext, text, id, cancellable = true, progress, opensSync = false)
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ForegroundInfo(42, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
@@ -259,6 +267,7 @@ internal fun syncNotification(
     workId: java.util.UUID,
     cancellable: Boolean,
     progress: TransferProgress? = null,
+    opensSync: Boolean = true,
 ): android.app.Notification {
     val channelId = "sync"
     val manager = context.getSystemService(NotificationManager::class.java)
@@ -268,10 +277,12 @@ internal fun syncNotification(
         NotificationManager.IMPORTANCE_LOW,
     )
     manager?.createNotificationChannel(channel)
+    val open = openIntent(context, opensSync)
     val builder = NotificationCompat.Builder(context, channelId)
         .setSmallIcon(R.drawable.ic_stat_cloud)
         .setContentTitle(context.getString(R.string.sync_notification_title))
         .setContentText(text)
+        .setContentIntent(open)
         .setOnlyAlertOnce(true)
         .setOngoing(true)
     if (progress != null && progress.size > 0L) {
@@ -288,7 +299,60 @@ internal fun syncNotification(
             Intent(context, CancelWorkReceiver::class.java).putExtra(CancelWorkReceiver.WORK_ID, workId.toString()),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        builder.addAction(0, context.getString(R.string.cancel), cancel)
+        builder.addAction(android.R.drawable.ic_menu_close_clear_cancel, context.getString(R.string.cancel), cancel)
     }
     return builder.build()
+}
+
+private fun progressText(context: Context, update: TransferProgress): String {
+    val current = if (update.total > 0) (update.done + 1).coerceAtMost(update.total) else update.done
+    return if (update.total > 0 && update.name.isNotEmpty()) {
+        context.getString(R.string.sync_progress_named, current, update.total, update.name)
+    } else {
+        context.getString(R.string.sync_progress, update.done, update.total)
+    }
+}
+
+private fun openIntent(context: Context, sync: Boolean): PendingIntent {
+    val intent = Intent(context, MainActivity::class.java)
+        .putExtra(MainActivity.EXTRA_OPEN, if (sync) "sync" else "browser")
+        .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+    return PendingIntent.getActivity(
+        context,
+        if (sync) 1 else 2,
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+}
+
+internal fun finishNotification(context: Context, success: Boolean, count: Int, reason: String?) {
+    val manager = context.getSystemService(NotificationManager::class.java) ?: return
+    val channel = NotificationChannel(
+        "sync",
+        context.getString(R.string.sync_channel),
+        NotificationManager.IMPORTANCE_LOW,
+    )
+    manager.createNotificationChannel(channel)
+    val text = if (success) {
+        context.getString(R.string.sync_done_count, count)
+    } else {
+        context.getString(R.string.sync_stopped, reason.orEmpty())
+    }
+    val open = openIntent(context, sync = true)
+    val builder = NotificationCompat.Builder(context, "sync")
+        .setSmallIcon(R.drawable.ic_stat_cloud)
+        .setContentTitle(context.getString(R.string.sync_notification_title))
+        .setContentText(text)
+        .setContentIntent(open)
+        .setAutoCancel(true)
+    if (success) builder.setTimeoutAfter(5_000) else builder.addAction(0, context.getString(R.string.open), open)
+    manager.notify(44, builder.build())
+}
+
+private fun failureReason(context: Context, failure: SyncFailure): String = when (failure) {
+    is SyncFailure.Web -> errorText(context, failure.error)
+    SyncFailure.NoConnection -> context.getString(R.string.error_no_connection)
+    SyncFailure.MediaPermission -> context.getString(R.string.error_media_permission)
+    SyncFailure.BadFolder -> context.getString(R.string.error_bad_folder)
+    SyncFailure.LocalFile -> context.getString(R.string.error_open_file)
 }

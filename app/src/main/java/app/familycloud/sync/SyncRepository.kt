@@ -47,10 +47,28 @@ class SyncRepository(
 
     suspend fun pairs(): List<SyncPairEntity> = database.syncPairDao().all()
 
-    suspend fun addPair(albumName: String, bucketId: String, remoteFolder: String) {
+    suspend fun addPair(
+        albumName: String,
+        bucketId: String,
+        remoteFolder: String,
+        includePhotos: Boolean = true,
+        includeVideos: Boolean = true,
+        wifiOnly: Boolean = true,
+        chargingOnly: Boolean = false,
+        onlyNewSinceEpochMs: Long? = null,
+    ) {
         val folder = if (remoteFolder.endsWith("/")) remoteFolder else "$remoteFolder/"
         database.syncPairDao().insert(
-            SyncPairEntity(albumName = albumName, bucketId = bucketId, remoteFolder = folder),
+            SyncPairEntity(
+                albumName = albumName,
+                bucketId = bucketId,
+                remoteFolder = folder,
+                includePhotos = includePhotos,
+                includeVideos = includeVideos,
+                wifiOnly = wifiOnly,
+                chargingOnly = chargingOnly,
+                onlyNewSinceEpochMs = onlyNewSinceEpochMs,
+            ),
         )
     }
 

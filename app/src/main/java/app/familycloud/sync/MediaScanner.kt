@@ -7,7 +7,12 @@ import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-data class LocalAlbum(val bucketId: String, val name: String)
+data class LocalAlbum(
+    val bucketId: String,
+    val name: String,
+    val count: Int = 0,
+    val coverUri: Uri? = null,
+)
 
 data class LocalMedia(
     val id: Long,
@@ -22,10 +27,22 @@ data class LocalMedia(
 
 class MediaScanner(private val context: Context) {
     suspend fun albums(): List<LocalAlbum> = withContext(Dispatchers.IO) {
-        val found = linkedMapOf<String, String>()
-        buckets(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, found)
-        buckets(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, found)
-        found.map { (id, name) -> LocalAlbum(id, name) }.sortedBy { it.name.lowercase() }
+        val found = linkedMapOf<String, Bucket>()
+        buckets(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, video = false, found)
+        buckets(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, video = true, found)
+        found.map { (id, bucket) ->
+            val collection = if (bucket.video) {
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            } else {
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            }
+            LocalAlbum(
+                bucketId = id,
+                name = bucket.name,
+                count = bucket.count,
+                coverUri = ContentUris.withAppendedId(collection, bucket.lastId),
+            )
+        }.sortedBy { it.name.lowercase() }
     }
 
     suspend fun files(bucketId: String, photos: Boolean, videos: Boolean, modifiedSinceMillis: Long?): List<LocalMedia> =
@@ -40,14 +57,26 @@ class MediaScanner(private val context: Context) {
             result
         }
 
-    private fun buckets(collection: Uri, into: MutableMap<String, String>) {
-        val projection = arrayOf(BUCKET_ID, BUCKET_NAME)
+    private fun buckets(collection: Uri, video: Boolean, into: MutableMap<String, Bucket>) {
+        val projection = arrayOf(BUCKET_ID, BUCKET_NAME, MediaStore.MediaColumns._ID)
         context.contentResolver.query(collection, projection, null, null, null)?.use { cursor ->
             val bucketCol = cursor.getColumnIndexOrThrow(BUCKET_ID)
             val albumCol = cursor.getColumnIndexOrThrow(BUCKET_NAME)
+            val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
             while (cursor.moveToNext()) {
                 val id = cursor.getString(bucketCol) ?: continue
-                into.putIfAbsent(id, cursor.getString(albumCol) ?: "")
+                val mediaId = cursor.getLong(idCol)
+                val current = into[id]
+                if (current == null) {
+                    into[id] = Bucket(cursor.getString(albumCol) ?: "", 1, mediaId, video)
+                } else {
+                    current.count += 1
+                    if (mediaId >= current.lastId) {
+                        current.lastId = mediaId
+                        current.video = video
+                        current.name = cursor.getString(albumCol) ?: current.name
+                    }
+                }
             }
         }
     }
@@ -102,6 +131,8 @@ class MediaScanner(private val context: Context) {
             }
         }
     }
+
+    private data class Bucket(var name: String, var count: Int, var lastId: Long, var video: Boolean)
 
     private companion object {
         const val BUCKET_ID = "bucket_id"

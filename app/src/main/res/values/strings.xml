@@ -65,7 +65,7 @@
     <string name="sync_battery_action">Открыть настройки батареи</string>
     <string name="sync_remove">Убрать альбом</string>
     <string name="sync_channel">Выгрузка</string>
-    <string name="sync_notification_title">FamilyCloud</string>
+    <string name="sync_notification_title">Выгрузка в FamilyCloud</string>
     <string name="sync_progress">Выгружено %1$d из %2$d</string>
     <string name="sync_working">Выгрузка</string>
     <string name="permissions">Разрешения</string>
@@ -172,4 +172,27 @@
     <string name="update_progress_mb">%1$s из %2$s МБ · %3$d%%</string>
     <string name="update_install_permission">Разрешите установку из FamilyCloud</string>
     <string name="update_open_settings">Открыть настройки</string>
+    <string name="sync_all_done">Всё выгружено</string>
+    <string name="sync_last_check">Последняя проверка: %1$s</string>
+    <string name="sync_waiting_wifi">Ждём Wi-Fi</string>
+    <string name="sync_waiting_charge">Ждём зарядку</string>
+    <string name="sync_failed">Выгрузка остановилась</string>
+    <string name="sync_more_notices">Ещё предупреждения: %1$d</string>
+    <string name="sync_empty_hint">Добавьте альбом, и новые фото будут уходить на роутер.</string>
+    <string name="sync_permission_title">Доступ к галерее</string>
+    <string name="sync_permission_explain">Чтобы выгружать фото, приложению нужен доступ к галерее.</string>
+    <string name="sync_continue">Продолжить</string>
+    <string name="sync_what">Что выгружать</string>
+    <string name="sync_only_new_hint">Иначе выгрузится весь альбом: %1$d</string>
+    <string name="sync_change_folder">Изменить папку</string>
+    <string name="sync_pair_status">Ожидают: %1$d · Последняя: %2$s</string>
+    <string name="sync_never">ещё не было</string>
+    <string name="sync_album_count">%1$d файлов</string>
+    <string name="sync_added">Уже добавлен</string>
+    <string name="sync_while_charging">При зарядке</string>
+    <string name="sync_done">Готово</string>
+    <string name="more">Ещё</string>
+    <string name="sync_progress_named">%1$d из %2$d · %3$s</string>
+    <string name="sync_done_count">Выгружено %1$d файлов</string>
+    <string name="sync_stopped">Выгрузка остановлена: %1$s</string>
 </resources>

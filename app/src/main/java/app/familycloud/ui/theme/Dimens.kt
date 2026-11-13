@@ -10,6 +10,8 @@ object Dimens {
     val xl = 24.dp
     val spinner = 20.dp
     val listIcon = 40.dp
+    val preview = 48.dp
+    val previewLarge = 56.dp
     val emptyIcon = 64.dp
     val fabClearance = 88.dp
 }

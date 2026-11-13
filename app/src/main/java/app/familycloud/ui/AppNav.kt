@@ -9,6 +9,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -34,9 +37,16 @@ import app.familycloud.ui.viewer.VideoRoute
 import app.familycloud.ui.viewer.VideoViewModel
 
 @Composable
-fun FamilyCloudNav(app: FamilyCloudApp) {
+fun FamilyCloudNav(app: FamilyCloudApp, open: String? = null) {
     val factory = remember { AppViewModelFactory(app) }
     val nav = rememberNavController()
+    LaunchedEffect(open) {
+        val route = open ?: return@LaunchedEffect
+        snapshotFlow { nav.currentDestination?.route }
+            .filterNotNull()
+            .first { it != "boot" }
+        if (route == "sync" && nav.currentDestination?.route != "sync") nav.navigate("sync")
+    }
     NavHost(navController = nav, startDestination = "boot") {
         composable("boot") {
             BootScreen(app) { destination ->
@@ -155,7 +165,7 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
                 viewModel = model,
                 onBack = { nav.popBackStack() },
                 onPickFolder = {
-                    val album = encodeNav(model.pendingAlbum?.name.orEmpty())
+                    val album = encodeNav(model.pickLabel())
                     nav.navigate("picker?mode=album&album=$album&from=&blocked=")
                 },
             )
