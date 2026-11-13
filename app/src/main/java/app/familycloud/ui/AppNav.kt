@@ -20,6 +20,16 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import app.familycloud.FamilyCloudApp
 import app.familycloud.R
+import app.familycloud.ui.browser.BrowserRoute
+import app.familycloud.ui.browser.BrowserViewModel
+import app.familycloud.ui.settings.ConnectionRoute
+import app.familycloud.ui.settings.ConnectionViewModel
+import app.familycloud.ui.sync.SyncRoute
+import app.familycloud.ui.sync.SyncViewModel
+import app.familycloud.ui.viewer.ImageRoute
+import app.familycloud.ui.viewer.ImageViewModel
+import app.familycloud.ui.viewer.VideoRoute
+import app.familycloud.ui.viewer.VideoViewModel
 
 @Composable
 fun FamilyCloudNav(app: FamilyCloudApp) {
@@ -33,7 +43,7 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
         }
         composable("connection") {
             val model: ConnectionViewModel = viewModel(factory = factory)
-            ConnectionScreen(model) {
+            ConnectionRoute(model) {
                 nav.navigate("browser") { popUpTo("connection") { inclusive = true } }
             }
         }
@@ -47,7 +57,7 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
                     }
                 }
             }
-            BrowserScreen(
+            BrowserRoute(
                 viewModel = model,
                 picking = false,
                 onBack = null,
@@ -64,7 +74,7 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
         }
         composable("picker") {
             val model: BrowserViewModel = viewModel(factory = factory)
-            BrowserScreen(
+            BrowserRoute(
                 viewModel = model,
                 picking = true,
                 onBack = { nav.popBackStack() },
@@ -89,7 +99,7 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
                     }
                 }
             }
-            SyncScreen(
+            SyncRoute(
                 viewModel = model,
                 onBack = { nav.popBackStack() },
                 onPickFolder = { nav.navigate("picker") },
@@ -103,11 +113,11 @@ fun FamilyCloudNav(app: FamilyCloudApp) {
             ),
         ) {
             val model: ImageViewModel = viewModel(factory = factory)
-            ImageScreen(model) { nav.popBackStack() }
+            ImageRoute(model) { nav.popBackStack() }
         }
         composable("video/{path}") {
             val model: VideoViewModel = viewModel(factory = factory)
-            VideoScreen(model) { nav.popBackStack() }
+            VideoRoute(model) { nav.popBackStack() }
         }
     }
 }

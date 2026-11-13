@@ -1,4 +1,4 @@
-package app.familycloud.ui
+package app.familycloud.ui.browser
 
 import android.app.Application
 import android.content.Intent
@@ -6,98 +6,23 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.CreationExtras
-import androidx.media3.common.MediaItem
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.okhttp.OkHttpDataSource
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import app.familycloud.AppContainer
-import app.familycloud.FamilyCloudApp
 import app.familycloud.R
 import app.familycloud.data.db.PendingUploadEntity
-import app.familycloud.data.db.SyncPairEntity
-import app.familycloud.data.settings.SettingsRepository
 import app.familycloud.data.webdav.FileKind
 import app.familycloud.data.webdav.RemoteEntry
 import app.familycloud.data.webdav.SortField
 import app.familycloud.data.webdav.SortOrder
-import app.familycloud.data.webdav.WebDavRepository
 import app.familycloud.data.webdav.WebDavResult
 import app.familycloud.data.webdav.kindOf
 import app.familycloud.data.webdav.sortEntries
-import app.familycloud.sync.LocalAlbum
 import app.familycloud.sync.SyncScheduler
 import app.familycloud.sync.errorText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import java.time.LocalDate
-import java.time.ZoneId
-import java.util.Base64
-
-fun encodeNav(path: String): String {
-    return Base64.getUrlEncoder().withoutPadding().encodeToString(path.toByteArray(Charsets.UTF_8))
-}
-
-fun decodeNav(value: String): String {
-    if (value.isEmpty()) return ""
-    return String(Base64.getUrlDecoder().decode(value), Charsets.UTF_8)
-}
-
-class AppViewModelFactory(
-    private val app: FamilyCloudApp,
-) : ViewModelProvider.Factory {
-    override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
-        val container = app.container
-        val model = when (modelClass) {
-            ConnectionViewModel::class.java -> ConnectionViewModel(app, container.repository, container.settings)
-            BrowserViewModel::class.java -> BrowserViewModel(app, container, extras.createSavedStateHandle())
-            SyncViewModel::class.java -> SyncViewModel(app, container)
-            ImageViewModel::class.java -> ImageViewModel(container, extras.createSavedStateHandle())
-            VideoViewModel::class.java -> VideoViewModel(app, container, extras.createSavedStateHandle())
-            else -> error("Unknown model ${modelClass.name}")
-        }
-        @Suppress("UNCHECKED_CAST")
-        return model as T
-    }
-}
-
-class ConnectionViewModel(
-    app: Application,
-    private val repository: WebDavRepository,
-    settings: SettingsRepository,
-) : AndroidViewModel(app) {
-    val saved = settings.connection
-    val busy = MutableStateFlow(false)
-    val error = MutableStateFlow<String?>(null)
-
-    val attemptedUrl = MutableStateFlow<String?>(null)
-
-    fun submit(url: String, login: String, password: String, allowHttp: Boolean, onDone: () -> Unit) {
-        viewModelScope.launch {
-            busy.value = true
-            error.value = null
-            val target = repository.normalizedAddress(url)
-            attemptedUrl.value = target
-            if (url.trim().startsWith("http://", ignoreCase = true) && !allowHttp) {
-                error.value = getApplication<Application>().getString(R.string.error_http_off)
-                busy.value = false
-                return@launch
-            }
-            when (val result = repository.test(url, login.trim(), password, allowHttp)) {
-                is WebDavResult.Ok -> onDone()
-                is WebDavResult.Err -> error.value = errorText(getApplication(), result.error)
-            }
-            busy.value = false
-        }
-    }
-}
 
 class BrowserViewModel(
     app: Application,
@@ -356,145 +281,5 @@ class BrowserViewModel(
         const val PATH = "path"
         const val SORT_FIELD = "sortField"
         const val SORT_ASC = "sortAsc"
-    }
-}
-
-data class PairRow(val pair: SyncPairEntity, val pending: Int)
-
-class SyncViewModel(
-    app: Application,
-    private val container: AppContainer,
-) : AndroidViewModel(app) {
-    val rows = MutableStateFlow<List<PairRow>>(emptyList())
-    val albums = MutableStateFlow<List<LocalAlbum>>(emptyList())
-    var pendingAlbum: LocalAlbum? = null
-
-    init {
-        reload()
-    }
-
-    fun reload() {
-        viewModelScope.launch {
-            val pairs = container.sync.pairs()
-            rows.value = pairs.map { pair ->
-                val pending = try {
-                    container.sync.pendingCount(pair)
-                } catch (_: SecurityException) {
-                    0
-                }
-                PairRow(pair, pending)
-            }
-        }
-    }
-
-    fun loadAlbums() {
-        viewModelScope.launch {
-            albums.value = try {
-                container.scanner.albums()
-            } catch (_: SecurityException) {
-                emptyList()
-            }
-        }
-    }
-
-    fun onFolderPicked(folder: String) {
-        val album = pendingAlbum ?: return
-        pendingAlbum = null
-        viewModelScope.launch {
-            container.sync.addPair(album.name, album.bucketId, folder)
-            SyncScheduler.refresh(getApplication(), container.sync.pairs())
-            reload()
-        }
-    }
-
-    fun update(pair: SyncPairEntity) {
-        viewModelScope.launch {
-            container.sync.update(pair)
-            SyncScheduler.refresh(getApplication(), container.sync.pairs())
-            reload()
-        }
-    }
-
-    fun setOnlyNew(pair: SyncPairEntity, enabled: Boolean) {
-        val since = if (enabled) {
-            LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        } else {
-            null
-        }
-        update(pair.copy(onlyNewSinceEpochMs = since))
-    }
-
-    fun delete(id: Long) {
-        viewModelScope.launch {
-            container.sync.deletePair(id)
-            androidx.work.WorkManager.getInstance(getApplication()).cancelUniqueWork("sync-$id")
-            SyncScheduler.refresh(getApplication(), container.sync.pairs())
-            reload()
-        }
-    }
-
-    fun syncNow() {
-        SyncScheduler.syncNow(getApplication())
-    }
-}
-
-class ImageViewModel(
-    private val container: AppContainer,
-    savedState: SavedStateHandle,
-) : ViewModel() {
-    val path: String = decodeNav(savedState.get<String>("path").orEmpty())
-    val images = MutableStateFlow(listOf(path))
-    val ready = MutableStateFlow(false)
-
-    init {
-        val field = SortField.entries.firstOrNull { it.name == savedState.get<String>("field") } ?: SortField.Name
-        val ascending = savedState.get<String>("asc") != "false"
-        viewModelScope.launch {
-            val parent = if (path.isEmpty()) "" else container.urls.parentRelative(path) ?: ""
-            when (val result = container.repository.list(parent)) {
-                is WebDavResult.Ok -> {
-                    val photos = sortEntries(result.value, SortOrder(field, ascending))
-                        .filter { !it.isFolder && kindOf(it.name) == FileKind.Image }
-                        .map { it.relativePath }
-                    if (path in photos) images.value = photos
-                }
-                is WebDavResult.Err -> Unit
-            }
-            ready.value = true
-        }
-    }
-
-    fun urlOf(relative: String): String? = container.repository.fileUrl(relative)
-
-    fun fileName(relative: String): String = container.urls.fileName(relative)
-}
-
-@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-class VideoViewModel(
-    app: Application,
-    container: AppContainer,
-    savedState: SavedStateHandle,
-) : AndroidViewModel(app) {
-    val path: String = decodeNav(savedState.get<String>("path").orEmpty())
-    val name: String = container.urls.fileName(path)
-    val player: ExoPlayer?
-
-    init {
-        val url = container.repository.fileUrl(path)
-        player = if (url == null) {
-            null
-        } else {
-            ExoPlayer.Builder(app).build().also { exo ->
-                val source = ProgressiveMediaSource.Factory(OkHttpDataSource.Factory(container.http))
-                    .createMediaSource(MediaItem.fromUri(url))
-                exo.setMediaSource(source)
-                exo.prepare()
-                exo.playWhenReady = true
-            }
-        }
-    }
-
-    override fun onCleared() {
-        player?.release()
     }
 }
